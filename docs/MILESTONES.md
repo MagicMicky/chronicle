@@ -324,14 +324,14 @@ M5.6 - Git history tools
 
 ### Acceptance Criteria
 
-- [ ] `claude "process current note"` works
-- [ ] MCP server connects to Chronicle app
-- [ ] Current file content accessible to MCP
-- [ ] Processing calls Claude API
-- [ ] Processed output written to files
-- [ ] Result pushed to app
-- [ ] Git commit created after processing
-- [ ] `claude "show history for this note"` works
+- [x] `claude "process current note"` works
+- [x] MCP server connects to Chronicle app
+- [x] Current file content accessible to MCP
+- [x] Processing calls Claude API
+- [x] Processed output written to files
+- [x] Result pushed to app
+- [ ] Git commit created after processing (manual via Cmd+Shift+S)
+- [x] `claude "show history for this note"` works
 
 ### Dependencies
 

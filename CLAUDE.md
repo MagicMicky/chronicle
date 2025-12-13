@@ -2,54 +2,81 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.1)
-- **Next**: M5 MCP Server (basic MCP server with process_meeting tool)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.1), M5 MCP Server (v0.6.0)
+- **Next**: M6 AI Output (structured display of processing results in UI)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.5.1
+- **Latest tag**: v0.6.0
 
-### M4 Terminal - What Was Built
+### M5 MCP Server - What Was Built
 
-**Approach**: Used `tauri-plugin-pty` (wraps portable-pty) + xterm.js for embedded terminal.
+**Approach**: Node/TypeScript MCP server with stdio transport + WebSocket communication to Tauri app.
 
-**Rust backend** (`app/src-tauri/src/`):
-- `lib.rs` - Registered `tauri_plugin_pty::init()` plugin
-- `commands/file.rs` - `get_default_shell` command (reads $SHELL env var)
+**MCP Server** (`mcp-server/`):
+- `src/index.ts` - MCP server entry point, registers resources and tools
+- `src/websocket/client.ts` - WebSocket client connecting to Chronicle app
+- `src/websocket/messages.ts` - WebSocket message type definitions
+- `src/resources/current.ts` - `note://current` resource (fetches current file via WS)
+- `src/resources/config.ts` - `note://config` resource (marker configuration)
+- `src/tools/process.ts` - `process_meeting` tool (calls Claude API, writes output)
+- `src/tools/history.ts` - `get_history`, `get_version`, `compare_versions` tools
+- `src/processing/parser.ts` - Marker parsing (`>`, `!`, `?`, `[]`, `@`)
+- `src/processing/prompt-builder.ts` - Claude API prompt construction
 
-**Frontend** (`app/src/lib/`):
-- `terminal/Terminal.svelte` - Full xterm.js integration with PTY
-- `terminal/pty.ts` - PTY spawn utilities, platform shell detection via Tauri command
-- `stores/terminal.ts` - Terminal state (spawned, error, focus requests)
-- `utils/tauri.ts` - Dynamic invoke utility (avoids API race condition)
-- `routes/+layout.svelte` - Updated Ctrl+` to expand and focus terminal
+**Rust WebSocket Server** (`app/src-tauri/src/websocket/`):
+- `server.rs` - WebSocket server on port 9847, handles MCP connections
+- `handlers.rs` - Message handlers for `getCurrentFile`, `getWorkspacePath`, push events
+- `mod.rs` - Module exports
+
+**Rust Commands** (`app/src-tauri/src/commands/`):
+- `appstate.rs` - `update_app_state`, `get_ws_port`, `get_processing_result` commands
+
+**Frontend** (`app/src/lib/stores/`):
+- `aiOutput.ts` - Store for AI processing results
+- `appState.ts` - Utility to sync file/workspace state to backend
+- Updated `workspace.ts` and `note.ts` to sync state on changes
 
 **Dependencies added**:
-- Rust: `tauri-plugin-pty = "0.1"`, `openssl = { version = "0.10", features = ["vendored"] }`
-- npm: `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links`, `tauri-pty`
-- npm overrides: `tauri-pty` uses parent's `@tauri-apps/api` (avoids duplicate)
+- Rust: `tokio-tungstenite = "0.24"`, `futures-util = "0.3"`
+- npm (mcp-server): `@modelcontextprotocol/sdk`, `@anthropic-ai/sdk`, `ws`, `zod`, `tsx`
 
 **Key behaviors**:
-- Terminal spawns when workspace opens (cwd = workspace root)
-- Bidirectional I/O: terminal.onData → pty.write, pty.onData → terminal.write
-- ResizeObserver with debounced fitAddon.fit() + pty.resize()
-- Ctrl+` expands terminal if collapsed and focuses it
-- Dark theme matches app (Dracula-inspired colors)
-- Scrollback: 10,000 lines
-- WebLinksAddon makes URLs clickable
-- Uses user's default shell from $SHELL environment variable
+- MCP server connects to Chronicle app via WebSocket on port 9847
+- `process_meeting` tool parses markers, calls Claude API, writes processed output
+- Original notes backed up to `.raw/` before processing
+- Processing metadata stored in `.meta/` JSON files
+- Git history tools query commit history for notes
+- Frontend syncs current file/workspace to backend for MCP queries
+- Processing results stored in app state (UI display in M6)
 
-**Fixes in v0.5.1**:
-- Added `pty:default` to capabilities (PTY permissions)
-- Fixed Tauri API race condition with dynamic import utility
-- Added vendored OpenSSL for macOS x86_64 cross-compilation
+**MCP Tools available**:
+- `process_meeting` - Process raw notes into structured summary
+- `get_history` - Get git history for a note
+- `get_version` - Get note content at specific commit
+- `compare_versions` - Show diff between two versions
+- `chronicle_status` - Check connection status
 
-### Notes for M5 MCP Server
+**MCP Registration** (add to `~/.claude.json`):
+```json
+{
+  "mcpServers": {
+    "chronicle": {
+      "command": "npx",
+      "args": ["tsx", "/path/to/chronicle/mcp-server/src/index.ts"],
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    }
+  }
+}
+```
 
-M5 requires:
-- Initialize Bun project with MCP SDK
-- WebSocket client to connect to Chronicle app
-- Implement `note://current` resource
-- Implement `process_meeting` tool (calls Claude API)
-- Rust WebSocket server in Chronicle app
+### Notes for M6 AI Output
+
+M6 requires:
+- Create AI Output pane UI components (Summary, KeyPoints, ActionList, Questions)
+- Display processing results from aiOutput store
+- Show processing state indicators (ready, processing, complete, error)
+- Connect to processingComplete push events via Tauri events
 - See `docs/MILESTONES.md` for acceptance criteria
 
 ## Project Overview

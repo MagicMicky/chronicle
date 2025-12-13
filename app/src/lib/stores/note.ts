@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store';
+import { syncAppState } from './appState';
 
 export interface Note {
   path: string | null;
@@ -53,6 +54,8 @@ function createNoteStore() {
         isDirty: false,
         lastSavedContent: content,
       }));
+      // Sync file path and content to backend for MCP server
+      syncAppState({ filePath: path, fileContent: content });
     },
 
     // Update note content (called on every edit)
@@ -76,11 +79,16 @@ function createNoteStore() {
     markSaved: (newPath?: string) =>
       update((state) => {
         if (!state.currentNote) return state;
+        const finalPath = newPath ?? state.currentNote.path;
+        // Sync updated path and content to backend for MCP server
+        if (finalPath) {
+          syncAppState({ filePath: finalPath, fileContent: state.currentNote.content });
+        }
         return {
           ...state,
           currentNote: {
             ...state.currentNote,
-            path: newPath ?? state.currentNote.path,
+            path: finalPath,
             isNew: false,
           },
           isDirty: false,

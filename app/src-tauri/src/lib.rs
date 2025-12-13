@@ -3,11 +3,27 @@ mod git;
 mod models;
 mod session;
 mod storage;
+mod websocket;
+
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
+
+pub use websocket::{AppState, SharedAppState};
+
+/// Global broadcast sender for WebSocket messages
+pub struct WsBroadcastState(pub broadcast::Sender<String>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize logging
     tracing_subscriber::fmt::init();
+
+    // Create shared app state for WebSocket handlers
+    let app_state: SharedAppState = Arc::new(RwLock::new(AppState::default()));
+
+    // Start WebSocket server on port 9847
+    let ws_broadcast = websocket::start_ws_server(9847, app_state.clone());
+    tracing::info!("WebSocket server starting on port 9847");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -15,6 +31,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_pty::init())
         .manage(commands::TrackerManagerState::new())
+        .manage(app_state)
+        .manage(WsBroadcastState(ws_broadcast))
         .invoke_handler(tauri::generate_handler![
             // Workspace commands
             commands::open_workspace,
@@ -37,6 +55,10 @@ pub fn run() {
             commands::commit_session,
             commands::commit_manual_snapshot,
             commands::get_git_status,
+            // App state commands (for WebSocket)
+            commands::update_app_state,
+            commands::get_ws_port,
+            commands::get_processing_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

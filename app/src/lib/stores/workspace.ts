@@ -1,5 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import { getInvoke } from '$lib/utils/tauri';
+import { syncAppState } from './appState';
 
 export interface FileNode {
   name: string;
@@ -56,6 +57,8 @@ function createWorkspaceStore() {
           files,
           isLoading: false,
         }));
+        // Sync workspace path to backend for MCP server
+        await syncAppState({ workspacePath: path });
         return info;
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
