@@ -101,11 +101,11 @@ M1.3 - Editor polish
 
 ### Acceptance Criteria
 
-- [ ] Editor displays markdown with syntax highlighting
-- [ ] Lines starting with `>`, `!`, `?`, `[]`, `@` are highlighted distinctly
-- [ ] Typing feels instant (no lag)
-- [ ] Editor content accessible from Svelte store
-- [ ] Editor resizes properly with pane
+- [x] Editor displays markdown with syntax highlighting
+- [x] Lines starting with `>`, `!`, `?`, `[]`, `@` are highlighted distinctly
+- [x] Typing feels instant (no lag)
+- [x] Editor content accessible from Svelte store
+- [x] Editor resizes properly with pane
 
 ### Dependencies
 

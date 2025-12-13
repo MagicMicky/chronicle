@@ -2,8 +2,8 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0)
-- **Next**: M1 Editor (CodeMirror integration)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.0)
+- **Next**: M2 Storage (auto-save, workspace, git)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
 
 ## Project Overview
