@@ -1,19 +1,19 @@
-use crate::session::{Session, SessionConfig, SessionInfo, SessionManager, SessionState};
+use crate::session::{Session, SessionConfig, SessionInfo, SessionManager};
 use crate::storage::{load_metadata, save_metadata, NoteMeta, SessionMeta};
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::State;
 
-/// Wrapper for thread-safe session manager
-pub struct SessionState(pub Mutex<SessionManager>);
+/// Wrapper for thread-safe session manager (Tauri managed state)
+pub struct SessionManagerState(pub Mutex<SessionManager>);
 
-impl SessionState {
+impl SessionManagerState {
     pub fn new() -> Self {
         Self(Mutex::new(SessionManager::new(SessionConfig::default())))
     }
 }
 
-impl Default for SessionState {
+impl Default for SessionManagerState {
     fn default() -> Self {
         Self::new()
     }
@@ -21,7 +21,7 @@ impl Default for SessionState {
 
 /// Get current session info
 #[tauri::command]
-pub fn get_session_info(session_state: State<'_, SessionState>) -> Option<SessionInfo> {
+pub fn get_session_info(session_state: State<'_, SessionManagerState>) -> Option<SessionInfo> {
     let manager = session_state.0.lock().unwrap();
     manager.get_session_info()
 }
@@ -31,7 +31,7 @@ pub fn get_session_info(session_state: State<'_, SessionState>) -> Option<Sessio
 pub fn start_session_tracking(
     note_path: String,
     existing_session: Option<Session>,
-    session_state: State<'_, SessionState>,
+    session_state: State<'_, SessionManagerState>,
 ) {
     let manager = session_state.0.lock().unwrap();
     manager.open_note(&note_path, existing_session);
@@ -40,28 +40,28 @@ pub fn start_session_tracking(
 
 /// Stop tracking (called when closing a note)
 #[tauri::command]
-pub fn stop_session_tracking(session_state: State<'_, SessionState>) -> Option<Session> {
+pub fn stop_session_tracking(session_state: State<'_, SessionManagerState>) -> Option<Session> {
     let manager = session_state.0.lock().unwrap();
     manager.close_note()
 }
 
 /// Record an edit to the current note
 #[tauri::command]
-pub fn record_edit(session_state: State<'_, SessionState>) {
+pub fn record_edit(session_state: State<'_, SessionManagerState>) {
     let manager = session_state.0.lock().unwrap();
     manager.record_edit();
 }
 
 /// Manually end the current session
 #[tauri::command]
-pub fn end_session(session_state: State<'_, SessionState>) -> Option<Session> {
+pub fn end_session(session_state: State<'_, SessionManagerState>) -> Option<Session> {
     let manager = session_state.0.lock().unwrap();
     manager.end_session()
 }
 
 /// Check for timeouts (called periodically from frontend)
 #[tauri::command]
-pub fn check_session_timeouts(session_state: State<'_, SessionState>) -> Option<Session> {
+pub fn check_session_timeouts(session_state: State<'_, SessionManagerState>) -> Option<Session> {
     let manager = session_state.0.lock().unwrap();
     manager.check_timeouts()
 }
@@ -71,7 +71,7 @@ pub fn check_session_timeouts(session_state: State<'_, SessionState>) -> Option<
 pub fn update_session_config(
     inactivity_timeout_minutes: u32,
     max_duration_minutes: u32,
-    session_state: State<'_, SessionState>,
+    session_state: State<'_, SessionManagerState>,
 ) {
     let mut manager = session_state.0.lock().unwrap();
     *manager = SessionManager::new(SessionConfig {
