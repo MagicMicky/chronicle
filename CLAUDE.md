@@ -2,10 +2,10 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.0)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.1)
 - **Next**: M5 MCP Server (basic MCP server with process_meeting tool)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.5.0
+- **Latest tag**: v0.5.1
 
 ### M4 Terminal - What Was Built
 
@@ -13,17 +13,19 @@
 
 **Rust backend** (`app/src-tauri/src/`):
 - `lib.rs` - Registered `tauri_plugin_pty::init()` plugin
+- `commands/file.rs` - `get_default_shell` command (reads $SHELL env var)
 
 **Frontend** (`app/src/lib/`):
 - `terminal/Terminal.svelte` - Full xterm.js integration with PTY
-- `terminal/pty.ts` - PTY spawn utilities, platform shell detection
+- `terminal/pty.ts` - PTY spawn utilities, platform shell detection via Tauri command
 - `stores/terminal.ts` - Terminal state (spawned, error, focus requests)
+- `utils/tauri.ts` - Dynamic invoke utility (avoids API race condition)
 - `routes/+layout.svelte` - Updated Ctrl+` to expand and focus terminal
-- `app.css` - xterm.js CSS import
 
 **Dependencies added**:
-- Rust: `tauri-plugin-pty = "0.1"`
+- Rust: `tauri-plugin-pty = "0.1"`, `openssl = { version = "0.10", features = ["vendored"] }`
 - npm: `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links`, `tauri-pty`
+- npm overrides: `tauri-pty` uses parent's `@tauri-apps/api` (avoids duplicate)
 
 **Key behaviors**:
 - Terminal spawns when workspace opens (cwd = workspace root)
@@ -33,6 +35,12 @@
 - Dark theme matches app (Dracula-inspired colors)
 - Scrollback: 10,000 lines
 - WebLinksAddon makes URLs clickable
+- Uses user's default shell from $SHELL environment variable
+
+**Fixes in v0.5.1**:
+- Added `pty:default` to capabilities (PTY permissions)
+- Fixed Tauri API race condition with dynamic import utility
+- Added vendored OpenSSL for macOS x86_64 cross-compilation
 
 ### Notes for M5 MCP Server
 
