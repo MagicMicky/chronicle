@@ -1,3 +1,3 @@
 mod tracker;
 
-pub use tracker::*;
+pub use tracker::{TrackerInfo, TrackerManager};

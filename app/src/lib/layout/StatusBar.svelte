@@ -2,13 +2,7 @@
   import { saveStatus, type SaveStatus } from '$lib/stores/autosave';
   import { noteTitle, isNoteDirty, hasOpenNote } from '$lib/stores/note';
   import { hasWorkspace, currentWorkspace } from '$lib/stores/workspace';
-  import {
-    sessionState as sessionStateStore,
-    sessionDuration as sessionDurationStore,
-    annotationCount as annotationCountStore,
-    formatDuration,
-    type SessionStateType,
-  } from '$lib/stores/session';
+  import { sessionDuration, formatDuration, isTracking } from '$lib/stores/session';
 
   // Use $ prefix to subscribe to stores reactively
   $: status = $saveStatus;
@@ -17,15 +11,14 @@
   $: noteOpen = $hasOpenNote;
   $: workspaceOpen = $hasWorkspace;
   $: workspaceName = $currentWorkspace?.name ?? '';
-  $: state = $sessionStateStore;
-  $: duration = $sessionDurationStore;
-  $: annotations = $annotationCountStore;
+  $: duration = $sessionDuration;
+  $: tracking = $isTracking;
 
   // Reactive status text
   $: statusText = getStatusText(status, dirty, noteOpen);
 
-  // Session display text
-  $: sessionDisplay = getSessionDisplay(state, duration, annotations);
+  // Duration display text
+  $: durationDisplay = tracking && duration > 0 ? `(${formatDuration(duration)})` : '';
 
   function getStatusText(s: SaveStatus, isDirty: boolean, hasNote: boolean): string {
     if (s === 'saving') return 'Saving...';
@@ -35,28 +28,6 @@
     if (hasNote) return 'Ready';
     return 'No file open';
   }
-
-  function getSessionDisplay(
-    sessionState: SessionStateType,
-    durationMinutes: number,
-    annotationCount: number
-  ): string {
-    if (sessionState === 'inactive') {
-      return '';
-    }
-
-    const durationStr = formatDuration(durationMinutes);
-
-    if (sessionState === 'active') {
-      return `(${durationStr})`;
-    }
-
-    // Session ended
-    if (annotationCount > 0) {
-      return `(${durationStr}) +${annotationCount} annotation${annotationCount > 1 ? 's' : ''}`;
-    }
-    return `(${durationStr})`;
-  }
 </script>
 
 <div class="status-bar">
@@ -64,10 +35,8 @@
     <span class="status-item">
       {#if noteOpen}
         {title}
-        {#if sessionDisplay}
-          <span class="session-info" class:active={state === 'active'} class:ended={state === 'ended'}>
-            {sessionDisplay}
-          </span>
+        {#if durationDisplay}
+          <span class="duration-info">{durationDisplay}</span>
         {/if}
       {:else if workspaceOpen}
         {workspaceName}
@@ -82,7 +51,7 @@
     </span>
   </div>
   <div class="status-right">
-    <span class="status-item">v0.3.0</span>
+    <span class="status-item">v0.4.1</span>
   </div>
 </div>
 
@@ -156,17 +125,8 @@
     color: var(--warning-color, #cca700);
   }
 
-  .session-info {
+  .duration-info {
     margin-left: 8px;
     opacity: 0.7;
-  }
-
-  .session-info.active {
-    color: var(--accent-color, #0078d4);
-    opacity: 1;
-  }
-
-  .session-info.ended {
-    color: var(--text-muted, #888);
   }
 </style>

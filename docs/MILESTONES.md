@@ -178,51 +178,46 @@ M2.5 - Auto-naming
 
 ---
 
-## Milestone 3: Session Tracking
+## Milestone 3: Session Tracking (Simplified)
 
-**Goal:** Note duration tracked automatically
+**Goal:** Track time spent on notes with commits on file close
 
 ### Tasks
 
 ```
-M3.1 - Session state machine
-├── Create session module (Rust)
-├── Define session states: Inactive, Active, Ended
-├── Track session start time
-├── Track last edit time
-├── Implement 15-min inactivity timeout
-├── Implement 2-hour maximum
+M3.1 - Simple duration tracking
+├── Create tracker module (Rust)
+├── Track note opened_at timestamp
+├── Calculate duration on file close
+└── No state machine (simplified)
 
-M3.2 - Frontend session display
-├── Create session store
+M3.2 - Frontend duration display
+├── Create session store (simplified)
 ├── Display elapsed time in status bar
 ├── Update every minute
-├── Show final duration after session ends
-├── Track annotation count
+└── Show duration while editing
 
-M3.3 - Session persistence
-├── Save session data to .meta/ JSON
-├── Load session on file open
-├── Preserve session after app restart
-└── Handle session edge cases
-
-M3.4 - Auto-commit on session events
-├── Commit on session end
-├── Commit on annotation threshold (debounced)
+M3.3 - Commit on file close
+├── Commit when switching files
+├── Commit when closing workspace
 ├── Generate semantic commit messages
-├── Stage relevant files per event
-└── Manual commit shortcut (Cmd+Shift+S)
+├── Update metadata before commit
+└── Manual snapshot shortcut (Cmd+Shift+S)
 ```
 
 ### Acceptance Criteria
 
-- [x] Status bar shows "Note Name (5m)" during active session
-- [x] Session ends after 15 min inactivity
-- [x] Session ends after 2 hours max
-- [x] Post-session edits are "annotations"
-- [x] Status shows "Note Name (32m) + 2 annotations"
-- [x] Git commit created on session end
-- [x] Commit message follows semantic format
+- [x] Status bar shows "Note Name (5m)" while editing
+- [x] Git commit on file close with duration
+- [x] Commit message follows semantic format: `session: Title (Xm)`
+- [x] Duration persisted in metadata
+
+### Removed (Deferred to M6)
+
+- ~~Session ends after 15 min inactivity~~ (removed)
+- ~~Session ends after 2 hours max~~ (removed)
+- ~~Post-session edits are "annotations"~~ (deferred to M6)
+- ~~Annotation tracking and commits~~ (deferred to M6)
 
 ### Dependencies
 

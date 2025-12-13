@@ -66,6 +66,7 @@ impl NoteMeta {
     }
 
     /// Set session metadata
+    #[allow(dead_code)] // Will be used when storing session data in M6
     pub fn set_session(&mut self, session: SessionMeta) {
         self.session = Some(session);
     }

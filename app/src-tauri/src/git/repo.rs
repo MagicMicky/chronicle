@@ -94,6 +94,7 @@ fn create_initial_commit(repo: &Repository, gitignore_path: &Path) -> Result<(),
 
 /// Commit type for semantic commits
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Process, Annotate, Snapshot used in future milestones
 pub enum CommitType {
     Session,
     Process,
@@ -203,6 +204,7 @@ pub fn commit_snapshot(workspace_path: &Path, title: &str) -> Result<String, Git
 }
 
 /// Check if there are uncommitted changes
+#[allow(dead_code)] // Will be used for dirty checking in future
 pub fn has_changes(workspace_path: &Path) -> Result<bool, GitError> {
     if !is_git_repo(workspace_path) {
         return Ok(false);

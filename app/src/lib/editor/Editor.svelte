@@ -6,7 +6,6 @@
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
   import { autoSaveStore } from '../stores/autosave';
   import { sessionStore } from '../stores/session';
-  import { hasWorkspace } from '../stores/workspace';
 
   let editorContainer: HTMLDivElement | undefined;
   let editorView: EditorView | null = null;
@@ -25,8 +24,6 @@
       noteStore.updateContent(content);
       // Trigger auto-save debounce
       autoSaveStore.onContentChange();
-      // Record edit for session tracking
-      sessionStore.recordEdit();
     }
   }
 
