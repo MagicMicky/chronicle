@@ -1,10 +1,12 @@
 <script lang="ts">
   import FileNode from './FileNode.svelte';
   import type { FileNode as FileNodeType } from '$lib/stores/workspace';
+  import type { FileStatus } from '$lib/stores/fileStatus';
 
   export let files: FileNodeType[];
   export let currentFilePath: string | null = null;
   export let onFileClick: (path: string) => void;
+  export let getStatus: (path: string) => FileStatus = () => 'clean';
 </script>
 
 <div class="file-tree">
@@ -14,7 +16,7 @@
     </div>
   {:else}
     {#each files as node (node.path)}
-      <FileNode {node} {currentFilePath} {onFileClick} />
+      <FileNode {node} {currentFilePath} {onFileClick} {getStatus} />
     {/each}
   {/if}
 </div>

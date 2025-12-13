@@ -33,6 +33,7 @@ pub fn run() {
             // Git commands
             commands::commit_session,
             commands::commit_manual_snapshot,
+            commands::get_git_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

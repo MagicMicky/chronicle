@@ -11,8 +11,10 @@
     recentWorkspaces,
     type FileNode,
   } from '$lib/stores/workspace';
-  import { noteStore, currentNote } from '$lib/stores/note';
+  import { noteStore, currentNote, isNoteDirty } from '$lib/stores/note';
   import { sessionStore } from '$lib/stores/session';
+  import { fileStatusStore, fileStatuses } from '$lib/stores/fileStatus';
+  import { autoSaveStore } from '$lib/stores/autosave';
   import { pickFolder } from '$lib/utils/dialog';
   import FileTree from './FileTree.svelte';
 
@@ -22,14 +24,24 @@
   let isLoading = false;
   let workspaceName = '';
   let recent: { path: string; name: string }[] = [];
+  let getStatus: (path: string) => 'clean' | 'unsaved' | 'uncommitted' = () => 'clean';
+  let isDirty = false;
 
   // Subscribe to stores
   workspaceFiles.subscribe((f) => (files = f));
   currentNote.subscribe((n) => (currentFilePath = n?.path ?? null));
   hasWorkspace.subscribe((h) => (isOpen = h));
+  isNoteDirty.subscribe((d) => (isDirty = d));
   workspaceLoading.subscribe((l) => (isLoading = l));
-  currentWorkspace.subscribe((w) => (workspaceName = w?.name ?? ''));
+  currentWorkspace.subscribe((w) => {
+    workspaceName = w?.name ?? '';
+    // Refresh git status when workspace changes
+    if (w) {
+      fileStatusStore.refresh();
+    }
+  });
   recentWorkspaces.subscribe((r) => (recent = r));
+  fileStatuses.subscribe((s) => (getStatus = s.getStatus));
 
   onMount(() => {
     workspaceStore.loadRecentWorkspaces();
@@ -44,6 +56,8 @@
     if (path) {
       try {
         await workspaceStore.openWorkspace(path);
+        // Refresh git status after opening workspace
+        await fileStatusStore.refresh();
       } catch (e) {
         console.error('Failed to open workspace:', e);
       }
@@ -53,6 +67,8 @@
   async function handleOpenRecent(path: string) {
     try {
       await workspaceStore.openWorkspace(path);
+      // Refresh git status after opening workspace
+      await fileStatusStore.refresh();
     } catch (e) {
       console.error('Failed to open recent workspace:', e);
     }
@@ -60,25 +76,39 @@
 
   async function handleFileClick(path: string) {
     try {
-      // Stop tracking current note's session first
+      // Save current file if dirty before switching
+      if (isDirty) {
+        await autoSaveStore.saveNow();
+      }
+
+      // Stop tracking current note's session (this commits)
       await sessionStore.stopTracking();
 
       const content = await invoke<string>('read_file', { path });
       noteStore.openNote(path, content);
 
-      // Start tracking session for this file (TODO: load existing session from metadata)
+      // Start tracking session for this file
       await sessionStore.startTracking(path);
+
+      // Refresh git status after file switch (commit may have happened)
+      await fileStatusStore.refresh();
     } catch (e) {
       console.error('Failed to open file:', e);
     }
   }
 
   async function handleCloseWorkspace() {
+    // Save current file if dirty before closing
+    if (isDirty) {
+      await autoSaveStore.saveNow();
+    }
+
     // Stop session tracking before closing
     await sessionStore.stopTracking();
     workspaceStore.closeWorkspace();
     noteStore.closeNote();
     sessionStore.reset();
+    fileStatusStore.reset();
   }
 </script>
 
@@ -112,7 +142,7 @@
         <span class="placeholder-text">Loading...</span>
       </div>
     {:else if isOpen}
-      <FileTree {files} {currentFilePath} onFileClick={handleFileClick} />
+      <FileTree {files} {currentFilePath} onFileClick={handleFileClick} {getStatus} />
     {:else}
       <div class="placeholder">
         <span class="placeholder-icon">&#128193;</span>

@@ -1,4 +1,4 @@
-use crate::git::{commit_files, CommitType};
+use crate::git::{commit_files, get_uncommitted_files, CommitType};
 use crate::storage::get_meta_path;
 use std::path::Path;
 
@@ -42,4 +42,12 @@ pub fn commit_manual_snapshot(workspace_path: String, title: String) -> Result<S
 
     crate::git::commit_snapshot(workspace, &title)
         .map_err(|e| format!("Snapshot commit failed: {}", e))
+}
+
+/// Get list of uncommitted files in the workspace
+#[tauri::command]
+pub fn get_git_status(workspace_path: String) -> Result<Vec<String>, String> {
+    let workspace = Path::new(&workspace_path);
+
+    get_uncommitted_files(workspace).map_err(|e| format!("Git status failed: {}", e))
 }

@@ -218,6 +218,41 @@ pub fn has_changes(workspace_path: &Path) -> Result<bool, GitError> {
     Ok(!statuses.is_empty())
 }
 
+/// Get list of modified/untracked files (not yet committed)
+pub fn get_uncommitted_files(workspace_path: &Path) -> Result<Vec<String>, GitError> {
+    if !is_git_repo(workspace_path) {
+        return Ok(vec![]);
+    }
+
+    let repo = Repository::open(workspace_path)?;
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true);
+
+    let statuses = repo.statuses(Some(&mut opts))?;
+    let mut files = Vec::new();
+
+    for entry in statuses.iter() {
+        if let Some(path) = entry.path() {
+            // Include modified, new, deleted files
+            let status = entry.status();
+            if status.is_index_new()
+                || status.is_index_modified()
+                || status.is_index_deleted()
+                || status.is_wt_new()
+                || status.is_wt_modified()
+                || status.is_wt_deleted()
+            {
+                // Return full path
+                let full_path = workspace_path.join(path);
+                files.push(full_path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    Ok(files)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

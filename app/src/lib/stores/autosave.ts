@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { noteStore, currentNote } from './note';
 import { workspaceStore, hasWorkspace, currentWorkspace } from './workspace';
+import { fileStatusStore } from './fileStatus';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -87,6 +88,8 @@ function createAutoSaveStore() {
       noteStore.markSaved(savePath);
       // Refresh the file list to show new/renamed file
       workspaceStore.refreshFiles();
+      // Refresh git status (file is now modified/uncommitted)
+      fileStatusStore.refresh();
 
       update((s) => ({ ...s, status: 'saved', lastSaved: new Date(), error: null }));
 

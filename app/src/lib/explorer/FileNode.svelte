@@ -1,16 +1,19 @@
 <script lang="ts">
   import type { FileNode } from '$lib/stores/workspace';
+  import type { FileStatus } from '$lib/stores/fileStatus';
 
   export let node: FileNode;
   export let depth: number = 0;
   export let currentFilePath: string | null = null;
   export let onFileClick: (path: string) => void;
+  export let getStatus: (path: string) => FileStatus = () => 'clean';
 
   let expanded = depth === 0; // Expand root level by default
 
   $: isSelected = node.path === currentFilePath;
   $: isDirectory = node.type === 'directory';
   $: indent = depth * 16;
+  $: status = isDirectory ? 'clean' : getStatus(node.path);
 
   function handleClick() {
     if (isDirectory) {
@@ -46,6 +49,14 @@
       {/if}
     </span>
     <span class="name">{node.name}</span>
+    {#if status !== 'clean'}
+      <span
+        class="status-dot"
+        class:unsaved={status === 'unsaved'}
+        class:uncommitted={status === 'uncommitted'}
+        title={status === 'unsaved' ? 'Unsaved changes' : 'Uncommitted changes'}
+      ></span>
+    {/if}
   </button>
 
   {#if isDirectory && expanded && node.children}
@@ -56,6 +67,7 @@
           depth={depth + 1}
           {currentFilePath}
           {onFileClick}
+          {getStatus}
         />
       {/each}
     </div>
@@ -122,6 +134,32 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  .status-dot.unsaved {
+    background-color: var(--warning-color, #cca700);
+  }
+
+  .status-dot.uncommitted {
+    background-color: var(--info-color, #e89e4c);
+  }
+
+  /* When selected, make dots more visible */
+  .node-row.selected .status-dot.unsaved {
+    background-color: #ffd700;
+  }
+
+  .node-row.selected .status-dot.uncommitted {
+    background-color: #ffb366;
   }
 
   .children {
