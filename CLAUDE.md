@@ -5,7 +5,7 @@
 - **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.0)
 - **Next**: M4 Terminal (embedded terminal with PTY)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.3.0 (v0.4.0 pending)
+- **Latest tag**: v0.4.0
 
 ### M3 Session - What Was Built
 
