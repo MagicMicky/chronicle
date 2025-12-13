@@ -1,6 +1,8 @@
 <script lang="ts">
   import '../app.css';
   import { uiStore } from '$lib/stores/ui';
+  import { terminalStore } from '$lib/stores/terminal';
+  import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import StatusBar from '$lib/layout/StatusBar.svelte';
 
@@ -22,10 +24,17 @@
         e.preventDefault();
         uiStore.toggleCollapse('aiOutput');
       }
-      // Cmd/Ctrl + `: Toggle Terminal
+      // Cmd/Ctrl + `: Focus Terminal (expand if collapsed)
       if ((e.metaKey || e.ctrlKey) && e.key === '`') {
         e.preventDefault();
-        uiStore.toggleCollapse('terminal');
+        const ui = get(uiStore);
+        if (ui.collapsed.terminal) {
+          uiStore.toggleCollapse('terminal');
+        }
+        // Request focus after a tick (allows terminal to render if just expanded)
+        requestAnimationFrame(() => {
+          terminalStore.requestFocus();
+        });
       }
     }
 

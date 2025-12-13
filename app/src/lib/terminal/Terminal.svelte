@@ -1,9 +1,151 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { uiStore } from '$lib/stores/ui';
+  import { terminalStore } from '$lib/stores/terminal';
+  import { currentWorkspace } from '$lib/stores/workspace';
+  import { spawnPty, type Pty } from './pty';
+  import type { Terminal as XTerm } from '@xterm/xterm';
+  import type { FitAddon } from '@xterm/addon-fit';
+  import type { WebLinksAddon } from '@xterm/addon-web-links';
+
+  let terminalContainer: HTMLElement;
+  let terminal: XTerm | null = null;
+  let fitAddon: FitAddon | null = null;
+  let webLinksAddon: WebLinksAddon | null = null;
+  let pty: Pty | null = null;
+  let resizeObserver: ResizeObserver | null = null;
+  let initialized = false;
+
+  // Debounce resize to prevent rapid resize calls
+  let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  function debouncedFit() {
+    if (resizeTimeout) clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      if (fitAddon && terminal && pty) {
+        fitAddon.fit();
+        pty.resize(terminal.cols, terminal.rows);
+      }
+    }, 100);
+  }
+
+  async function initTerminal(workspacePath: string) {
+    if (initialized || !terminalContainer) return;
+    initialized = true;
+
+    // Dynamic imports to avoid SSR issues
+    const { Terminal } = await import('@xterm/xterm');
+    const { FitAddon: FitAddonClass } = await import('@xterm/addon-fit');
+    const { WebLinksAddon: WebLinksAddonClass } = await import('@xterm/addon-web-links');
+
+    // Create terminal with dark theme
+    terminal = new Terminal({
+      theme: {
+        background: '#0d0d0d',
+        foreground: '#e0e0e0',
+        cursor: '#e0e0e0',
+        cursorAccent: '#0d0d0d',
+        selectionBackground: '#44475a',
+        black: '#21222c',
+        red: '#ff5555',
+        green: '#50fa7b',
+        yellow: '#f1fa8c',
+        blue: '#bd93f9',
+        magenta: '#ff79c6',
+        cyan: '#8be9fd',
+        white: '#f8f8f2',
+      },
+      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+      fontSize: 13,
+      cursorBlink: true,
+      scrollback: 10000,
+      allowProposedApi: true,
+    });
+
+    // Load addons
+    fitAddon = new FitAddonClass();
+    webLinksAddon = new WebLinksAddonClass();
+    terminal.loadAddon(fitAddon);
+    terminal.loadAddon(webLinksAddon);
+
+    // Open terminal in container
+    terminal.open(terminalContainer);
+
+    // Wait a tick for DOM to settle, then fit
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    fitAddon.fit();
+
+    // Spawn PTY process
+    try {
+      pty = await spawnPty({
+        cols: terminal.cols,
+        rows: terminal.rows,
+        cwd: workspacePath,
+      });
+
+      // Wire up data flow: PTY -> Terminal
+      pty.onData((data: string) => {
+        terminal?.write(data);
+      });
+
+      // Wire up data flow: Terminal -> PTY
+      terminal.onData((data: string) => {
+        pty?.write(data);
+      });
+
+      terminalStore.setSpawned(workspacePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      terminalStore.setError(message);
+      terminal.writeln(`\r\n\x1b[31mFailed to spawn terminal: ${message}\x1b[0m`);
+    }
+
+    // Set up resize observer
+    resizeObserver = new ResizeObserver(() => {
+      debouncedFit();
+    });
+    resizeObserver.observe(terminalContainer);
+  }
 
   function handleCollapse() {
     uiStore.toggleCollapse('terminal');
   }
+
+  /**
+   * Focus the terminal. Called by keyboard shortcut.
+   */
+  export function focus() {
+    terminal?.focus();
+  }
+
+  // Track workspace changes and focus requests
+  let unsubWorkspace: (() => void) | null = null;
+  let unsubTerminal: (() => void) | null = null;
+
+  onMount(() => {
+    unsubWorkspace = currentWorkspace.subscribe((workspace) => {
+      if (workspace && !initialized) {
+        initTerminal(workspace.path);
+      }
+    });
+
+    // Watch for focus requests
+    unsubTerminal = terminalStore.subscribe((state) => {
+      if (state.focusRequested && terminal) {
+        terminal.focus();
+        terminalStore.clearFocusRequest();
+      }
+    });
+  });
+
+  onDestroy(() => {
+    unsubWorkspace?.();
+    unsubTerminal?.();
+    if (resizeTimeout) clearTimeout(resizeTimeout);
+    resizeObserver?.disconnect();
+    pty?.kill();
+    terminal?.dispose();
+    terminalStore.reset();
+  });
 </script>
 
 <div class="terminal">
@@ -13,13 +155,7 @@
       <span class="icon">&#x2212;</span>
     </button>
   </div>
-  <div class="pane-content">
-    <div class="placeholder">
-      <span class="placeholder-icon">&#128187;</span>
-      <span class="placeholder-text">Terminal</span>
-      <span class="placeholder-hint">Integrated terminal with Claude Code</span>
-    </div>
-  </div>
+  <div class="pane-content" bind:this={terminalContainer}></div>
 </div>
 
 <style>
@@ -37,6 +173,7 @@
     padding: 8px 12px;
     background: var(--header-bg, #1a1a1a);
     border-bottom: 1px solid var(--border-color, #333);
+    flex-shrink: 0;
   }
 
   .pane-title {
@@ -67,32 +204,16 @@
 
   .pane-content {
     flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: auto;
+    overflow: hidden;
+    padding: 4px;
   }
 
-  .placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-muted, #666);
+  /* xterm.js container fills available space */
+  .pane-content :global(.xterm) {
+    height: 100%;
   }
 
-  .placeholder-icon {
-    font-size: 32px;
-    opacity: 0.5;
-  }
-
-  .placeholder-text {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .placeholder-hint {
-    font-size: 12px;
-    opacity: 0.7;
+  .pane-content :global(.xterm-viewport) {
+    overflow-y: auto !important;
   }
 </style>

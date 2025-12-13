@@ -2,50 +2,46 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2)
-- **Next**: M4 Terminal (embedded terminal with PTY)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.0)
+- **Next**: M5 MCP Server (basic MCP server with process_meeting tool)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.4.2
+- **Latest tag**: v0.5.0
 
-### M3 Session - What Was Built (Simplified in v0.4.2)
+### M4 Terminal - What Was Built
 
-**Design Decision**: The original M3 had complex timeout-based sessions (15min inactivity, 2hr max). This was over-engineered for MVP and caused bugs. Simplified to duration-only tracking with commits on file close.
+**Approach**: Used `tauri-plugin-pty` (wraps portable-pty) + xterm.js for embedded terminal.
 
 **Rust backend** (`app/src-tauri/src/`):
-- `session/tracker.rs` - Simple NoteTracker (tracks opened_at, calculates duration)
-- `commands/session.rs` - Three commands: `start_tracking`, `stop_tracking`, `get_tracker_info`
-- `commands/git.rs` - `commit_session` (on file close), `commit_manual_snapshot`, `get_git_status`
-- `storage/naming.rs` - `generate_unique_path()` prevents file overwrites with suffixes
+- `lib.rs` - Registered `tauri_plugin_pty::init()` plugin
 
 **Frontend** (`app/src/lib/`):
-- `stores/session.ts` - Duration tracking, auto-commit on file close/switch
-- `stores/fileStatus.ts` - Tracks unsaved (dirty) and uncommitted (git) files
-- `explorer/FileNode.svelte` - Shows colored status dots (yellow=unsaved, orange=uncommitted)
-- `layout/StatusBar.svelte` - Shows "Note Name (5m)" while editing
+- `terminal/Terminal.svelte` - Full xterm.js integration with PTY
+- `terminal/pty.ts` - PTY spawn utilities, platform shell detection
+- `stores/terminal.ts` - Terminal state (spawned, error, focus requests)
+- `routes/+layout.svelte` - Updated Ctrl+` to expand and focus terminal
+- `app.css` - xterm.js CSS import
+
+**Dependencies added**:
+- Rust: `tauri-plugin-pty = "0.1"`
+- npm: `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links`, `tauri-pty`
 
 **Key behaviors**:
-- Duration tracked from file open to close (no timeouts)
-- Auto-save before switching files (prevents data loss)
-- Auto-commit on file close with format: `session: Note Title (Xm)`
-- File status dots in explorer show save/commit state
-- Unique filenames generated (meeting-notes-2.md if conflict)
-- Annotations concept deferred to M6 (AI Output edits)
+- Terminal spawns when workspace opens (cwd = workspace root)
+- Bidirectional I/O: terminal.onData → pty.write, pty.onData → terminal.write
+- ResizeObserver with debounced fitAddon.fit() + pty.resize()
+- Ctrl+` expands terminal if collapsed and focuses it
+- Dark theme matches app (Dracula-inspired colors)
+- Scrollback: 10,000 lines
+- WebLinksAddon makes URLs clickable
 
-**Removed from original M3**:
-- ~~Session state machine (Inactive/Active/Ended)~~
-- ~~15-minute inactivity timeout~~
-- ~~2-hour max duration~~
-- ~~Annotation tracking~~
-- ~~recordEdit() on every keystroke~~
+### Notes for M5 MCP Server
 
-### Notes for M4 Terminal
-
-M4 requires:
-- PTY spawning with `portable-pty` crate
-- xterm.js integration in Terminal.svelte
-- Bidirectional I/O between PTY and terminal
-- Working directory set to workspace root
-- Resize handling and scrollback
+M5 requires:
+- Initialize Bun project with MCP SDK
+- WebSocket client to connect to Chronicle app
+- Implement `note://current` resource
+- Implement `process_meeting` tool (calls Claude API)
+- Rust WebSocket server in Chronicle app
 - See `docs/MILESTONES.md` for acceptance criteria
 
 ## Project Overview
