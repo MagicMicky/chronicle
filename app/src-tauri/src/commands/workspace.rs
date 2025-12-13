@@ -1,0 +1,67 @@
+use crate::git;
+use crate::models::{FileNode, Workspace, WorkspaceInfo};
+use crate::storage;
+use chrono::Utc;
+use std::path::Path;
+
+#[tauri::command]
+pub async fn open_workspace(path: String) -> Result<WorkspaceInfo, String> {
+    let workspace_path = Path::new(&path);
+
+    // Validate path exists and is directory
+    if !workspace_path.is_dir() {
+        return Err(format!("Path is not a directory: {}", path));
+    }
+
+    tracing::info!("Opening workspace at {}", path);
+
+    // Initialize or open git repo
+    let is_git_repo = match git::init_or_open_repo(workspace_path) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("Git initialization failed: {}", e);
+            false
+        }
+    };
+
+    // List files
+    let files = storage::list_files(workspace_path).map_err(|e| e.to_string())?;
+    let file_count = storage::count_files(&files);
+
+    // Get workspace name from path
+    let name = workspace_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Workspace")
+        .to_string();
+
+    // Save to recent workspaces
+    let workspace = Workspace {
+        path: path.clone(),
+        name: name.clone(),
+        last_opened: Utc::now(),
+    };
+
+    if let Err(e) = storage::save_recent_workspace(&workspace) {
+        tracing::warn!("Failed to save recent workspace: {}", e);
+    }
+
+    Ok(WorkspaceInfo {
+        path,
+        name,
+        is_git_repo,
+        file_count,
+    })
+}
+
+#[tauri::command]
+pub async fn list_workspace_files(workspace_path: String) -> Result<Vec<FileNode>, String> {
+    storage::list_files(Path::new(&workspace_path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_recent_workspaces() -> Result<Vec<Workspace>, String> {
+    storage::get_recent_workspaces()
+        .map(|r| r.workspaces)
+        .map_err(|e| e.to_string())
+}

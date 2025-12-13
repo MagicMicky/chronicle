@@ -164,13 +164,13 @@ M2.5 - Auto-naming
 
 ### Acceptance Criteria
 
-- [ ] User can open a folder as workspace
-- [ ] Workspace auto-initialized as git repo
-- [ ] Explorer shows files from workspace
-- [ ] Click file to open in editor
-- [ ] Edits auto-saved after 2s pause
-- [ ] Files renamed when H1 changes
-- [ ] Status bar shows save state
+- [x] User can open a folder as workspace
+- [x] Workspace auto-initialized as git repo
+- [x] Explorer shows files from workspace
+- [x] Click file to open in editor
+- [x] Edits auto-saved after 2s pause
+- [x] Files renamed when H1 changes
+- [x] Status bar shows save state
 
 ### Dependencies
 

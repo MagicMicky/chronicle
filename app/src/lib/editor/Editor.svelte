@@ -4,6 +4,8 @@
   import { EditorView } from '@codemirror/view';
   import { createExtensionsWithKeymap } from './extensions';
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
+  import { autoSaveStore } from '../stores/autosave';
+  import { hasWorkspace } from '../stores/workspace';
 
   let editorContainer: HTMLDivElement | undefined;
   let editorView: EditorView | null = null;
@@ -20,6 +22,8 @@
   function handleContentChange(content: string) {
     if (!isUpdatingFromStore) {
       noteStore.updateContent(content);
+      // Trigger auto-save debounce
+      autoSaveStore.onContentChange();
     }
   }
 
