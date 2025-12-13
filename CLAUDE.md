@@ -1,5 +1,11 @@
 # Chronicle — Claude Code Guidelines
 
+## Current Status
+
+- **Completed**: M0 Foundation (v0.1.0)
+- **Next**: M1 Editor (CodeMirror integration)
+- **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
+
 ## Project Overview
 
 Chronicle is a local-first, AI-powered note-taking application. Users capture thoughts in markdown with semantic markers, then Claude processes them into structured summaries with action items and insights.
