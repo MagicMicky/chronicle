@@ -73,6 +73,27 @@ git log --oneline -10
 2. **Test manually** (run the app, verify behavior)
 3. **Commit with semantic message** (see Git Conventions below)
 4. **Update milestone checklist** if completing acceptance criteria
+5. **Push to remote**: `git push origin main`
+
+### Releasing (Milestones & Features)
+
+When completing a **milestone** or significant **feature**:
+
+1. **Commit** with appropriate message (`milestone:` or `feat:`)
+2. **Push to remote**: `git push origin main`
+3. **Tag for release** (triggers CI builds for all platforms):
+   ```bash
+   git tag v0.X.0
+   git push origin v0.X.0
+   ```
+
+**Version numbering:**
+- `v0.1.0` — M0 Foundation
+- `v0.2.0` — M1 Editor
+- `v0.3.0` — M2 Storage
+- etc.
+
+GitHub Actions will automatically build Windows, macOS, and Linux installers when a tag is pushed.
 
 ### When to Commit
 
@@ -333,7 +354,9 @@ If you ask me to implement a feature:
 - I'll check dependencies are complete
 - I'll implement according to acceptance criteria
 - I'll commit with a clear message
+- I'll push to remote (`git push origin main`)
 - I'll update the milestone checklist
+- For milestones: I'll tag and push to trigger CI (`git tag vX.X.X && git push origin vX.X.X`)
 
 ## Quick Reference
 
