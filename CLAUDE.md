@@ -2,9 +2,34 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.0)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2)
 - **Next**: M2 Storage (auto-save, workspace, git)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
+- **Latest tag**: v0.2.2
+
+### M1 Editor - What Was Built
+
+- **CodeMirror 6** integration with markdown support (`app/src/lib/editor/`)
+  - `Editor.svelte` - Main component wrapping CodeMirror
+  - `theme.ts` - Chronicle dark theme matching app CSS vars
+  - `markers.ts` - Semantic marker highlighting (>, !, ?, [], @)
+  - `extensions.ts` - Combined CM6 extensions config
+- **Note store** (`app/src/lib/stores/note.ts`) - Content, title, dirty state
+- **Keyboard shortcuts**: Cmd+B (bold), Cmd+I (italic), Cmd+` (code), Cmd+K (link)
+
+### Notes for M2 Storage
+
+M2 requires **Rust backend work** for the first time:
+- Add `git2` crate for git operations
+- Create Tauri commands for file I/O and workspace management
+- Implement auto-save with debouncing
+- See `docs/MILESTONES.md` for full M2 task breakdown
+
+Key files to create (per PROJECT_STRUCTURE.md):
+- `app/src-tauri/src/storage/` - File operations module
+- `app/src-tauri/src/git/` - Git version control module
+- `app/src/lib/stores/workspace.ts` - Workspace state
+- `app/src/lib/explorer/FileTree.svelte` - File browser
 
 ## Project Overview
 
