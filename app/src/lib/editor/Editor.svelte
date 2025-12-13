@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { EditorState } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
   import { createExtensionsWithKeymap } from './extensions';
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
 
-  let editorContainer: HTMLDivElement;
+  let editorContainer: HTMLDivElement | undefined;
   let editorView: EditorView | null = null;
   let isUpdatingFromStore = false;
 
@@ -14,6 +14,7 @@
   let currentHasOpenNote = false;
   let currentNoteTitle = '';
   let currentIsDirty = false;
+  let pendingContent: string | null = null;
 
   // Handle content changes from the editor
   function handleContentChange(content: string) {
@@ -24,6 +25,12 @@
 
   // Create a new editor view
   function createEditor(initialContent: string = '') {
+    if (!editorContainer) {
+      // Container not ready yet, store content for later
+      pendingContent = initialContent;
+      return;
+    }
+
     if (editorView) {
       editorView.destroy();
     }
@@ -37,6 +44,9 @@
       state,
       parent: editorContainer,
     });
+
+    pendingContent = null;
+    editorView.focus();
   }
 
   // Update editor content from store (when opening a file)
@@ -57,12 +67,33 @@
     }
   }
 
+  // Try to create editor when container becomes available
+  async function tryCreateEditor(content: string) {
+    // Wait for DOM to update
+    await tick();
+
+    if (editorContainer && !editorView) {
+      createEditor(content);
+    }
+  }
+
   onMount(() => {
+    // Subscribe to derived stores for header display
+    const unsubHasNote = hasOpenNote.subscribe((v) => {
+      currentHasOpenNote = v;
+      // If we have pending content and the container should now exist, try creating
+      if (v && pendingContent !== null) {
+        tryCreateEditor(pendingContent);
+      }
+    });
+    const unsubTitle = noteTitle.subscribe((v) => (currentNoteTitle = v));
+    const unsubDirty = isNoteDirty.subscribe((v) => (currentIsDirty = v));
+
     // Subscribe to note store
     unsubscribe = noteStore.subscribe((state) => {
       if (state.currentNote) {
         if (!editorView) {
-          createEditor(state.currentNote.content);
+          tryCreateEditor(state.currentNote.content);
         } else {
           updateEditorContent(state.currentNote.content);
         }
@@ -71,11 +102,6 @@
         editorView = null;
       }
     });
-
-    // Subscribe to derived stores for header display
-    const unsubHasNote = hasOpenNote.subscribe((v) => (currentHasOpenNote = v));
-    const unsubTitle = noteTitle.subscribe((v) => (currentNoteTitle = v));
-    const unsubDirty = isNoteDirty.subscribe((v) => (currentIsDirty = v));
 
     return () => {
       unsubHasNote();

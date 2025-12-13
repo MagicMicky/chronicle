@@ -92,6 +92,7 @@
   .panes-container {
     display: flex;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -114,6 +115,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
   }
 
   .editor-pane {
