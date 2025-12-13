@@ -64,6 +64,38 @@ pub fn suggest_path(current_path: &Path, content: &str) -> Option<PathBuf> {
     Some(parent.join(new_filename))
 }
 
+/// Generate a unique path for a new file, adding numeric suffix if needed
+pub fn generate_unique_path(workspace: &Path, content: &str) -> PathBuf {
+    let title = extract_title(content).unwrap_or_else(|| "untitled".to_string());
+    let base_filename = generate_filename(&title);
+    let base_path = workspace.join(&base_filename);
+
+    // If path doesn't exist, use it directly
+    if !base_path.exists() {
+        return base_path;
+    }
+
+    // Add numeric suffix until we find a unique name
+    let stem = base_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("note");
+
+    let mut counter = 2;
+    loop {
+        let candidate = workspace.join(format!("{}-{}.md", stem, counter));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+        if counter > 100 {
+            // Fallback: use timestamp
+            let ts = Utc::now().format("%H%M%S");
+            return workspace.join(format!("{}-{}.md", stem, ts));
+        }
+    }
+}
+
 /// Rename a file, handling conflicts by adding a numeric suffix
 pub fn rename_file(old_path: &Path, new_path: &Path) -> Result<PathBuf, StorageError> {
     if old_path == new_path {

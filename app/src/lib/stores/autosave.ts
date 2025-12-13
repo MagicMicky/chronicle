@@ -42,25 +42,13 @@ function createAutoSaveStore() {
     try {
       let savePath = note.path;
 
-      // For new notes, generate a path from the title
+      // For new notes, generate a unique path via backend (handles conflicts)
       if (!savePath || note.isNew) {
-        // Extract title from content to generate filename
-        const titleMatch = note.content.match(/^#\s+(.+)$/m);
-        const title = titleMatch ? titleMatch[1].trim() : 'untitled';
-
-        // Generate a slug from the title
-        const slug = title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          || 'untitled';
-
-        // Create filename with date prefix
-        const date = new Date().toISOString().split('T')[0];
-        const filename = `${date}-${slug}.md`;
-        savePath = `${workspace.path}/${filename}`;
-
-        console.log('[AutoSave] New note - generated path:', savePath);
+        savePath = await invoke<string>('generate_note_path', {
+          workspacePath: workspace.path,
+          content: note.content,
+        });
+        console.log('[AutoSave] New note - generated unique path:', savePath);
       }
 
       // Write file

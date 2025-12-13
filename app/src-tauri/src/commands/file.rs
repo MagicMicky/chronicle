@@ -27,3 +27,11 @@ pub async fn rename_file(old_path: String, new_path: String) -> Result<String, S
         .map(|p| p.display().to_string())
         .map_err(|e| e.to_string())
 }
+
+/// Generate a unique path for a new note (handles conflicts with suffixes)
+#[tauri::command]
+pub async fn generate_note_path(workspace_path: String, content: String) -> String {
+    storage::generate_unique_path(Path::new(&workspace_path), &content)
+        .display()
+        .to_string()
+}
