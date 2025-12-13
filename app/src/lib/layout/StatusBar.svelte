@@ -79,14 +79,17 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    justify-content: flex-start;
   }
 
   .status-center {
-    flex-shrink: 0;
+    flex: 0 0 auto;
   }
 
   .status-right {
-    flex-shrink: 0;
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-end;
   }
 
   .status-left .status-item {
