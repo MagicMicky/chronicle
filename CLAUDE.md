@@ -2,36 +2,51 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.1)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2)
 - **Next**: M4 Terminal (embedded terminal with PTY)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.4.1
+- **Latest tag**: v0.4.0 (v0.4.2 not tagged yet)
 
-### M3 Session - What Was Built (Simplified in v0.4.1)
+### M3 Session - What Was Built (Simplified in v0.4.2)
 
-- **Rust backend modules** (`app/src-tauri/src/`):
-  - `session/tracker.rs` - Simple NoteTracker (tracks opened_at, calculates duration)
-  - `storage/metadata.rs` - .meta/ JSON file persistence
-  - `commands/session.rs` - Simplified: start_tracking, stop_tracking, get_tracker_info
-  - `commands/git.rs` - Commit on file close (session), manual snapshot
-- **Frontend stores** (`app/src/lib/stores/`):
-  - `session.ts` - Simple duration tracking, commit on file close
-- **StatusBar** - Shows "Note Name (5m)" while editing
-- **Session features**:
-  - Duration tracked from file open to close
-  - Auto-commit on file close/switch
-  - Commit format: `session: Note Title (Xm)`
-  - No timeout-based session end (simplified)
-  - Annotations deferred to M6 (AI Output edits)
+**Design Decision**: The original M3 had complex timeout-based sessions (15min inactivity, 2hr max). This was over-engineered for MVP and caused bugs. Simplified to duration-only tracking with commits on file close.
+
+**Rust backend** (`app/src-tauri/src/`):
+- `session/tracker.rs` - Simple NoteTracker (tracks opened_at, calculates duration)
+- `commands/session.rs` - Three commands: `start_tracking`, `stop_tracking`, `get_tracker_info`
+- `commands/git.rs` - `commit_session` (on file close), `commit_manual_snapshot`, `get_git_status`
+- `storage/naming.rs` - `generate_unique_path()` prevents file overwrites with suffixes
+
+**Frontend** (`app/src/lib/`):
+- `stores/session.ts` - Duration tracking, auto-commit on file close/switch
+- `stores/fileStatus.ts` - Tracks unsaved (dirty) and uncommitted (git) files
+- `explorer/FileNode.svelte` - Shows colored status dots (yellow=unsaved, orange=uncommitted)
+- `layout/StatusBar.svelte` - Shows "Note Name (5m)" while editing
+
+**Key behaviors**:
+- Duration tracked from file open to close (no timeouts)
+- Auto-save before switching files (prevents data loss)
+- Auto-commit on file close with format: `session: Note Title (Xm)`
+- File status dots in explorer show save/commit state
+- Unique filenames generated (meeting-notes-2.md if conflict)
+- Annotations concept deferred to M6 (AI Output edits)
+
+**Removed from original M3**:
+- ~~Session state machine (Inactive/Active/Ended)~~
+- ~~15-minute inactivity timeout~~
+- ~~2-hour max duration~~
+- ~~Annotation tracking~~
+- ~~recordEdit() on every keystroke~~
 
 ### Notes for M4 Terminal
 
 M4 requires:
-- PTY spawning with portable-pty crate
+- PTY spawning with `portable-pty` crate
 - xterm.js integration in Terminal.svelte
 - Bidirectional I/O between PTY and terminal
 - Working directory set to workspace root
 - Resize handling and scrollback
+- See `docs/MILESTONES.md` for acceptance criteria
 
 ## Project Overview
 
