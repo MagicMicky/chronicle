@@ -2,44 +2,37 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0)
-- **Next**: M3 Session (session tracking, duration, git commits)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.0)
+- **Next**: M4 Terminal (embedded terminal with PTY)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.3.0
+- **Latest tag**: v0.3.0 (v0.4.0 pending)
 
-### M2 Storage - What Was Built
+### M3 Session - What Was Built
 
 - **Rust backend modules** (`app/src-tauri/src/`):
-  - `models/workspace.rs` - Workspace, FileNode, WorkspaceInfo types
-  - `storage/files.rs` - File read/write with atomic saves
-  - `storage/workspace.rs` - Workspace listing, recent workspaces
-  - `storage/naming.rs` - Title extraction, slug generation, auto-rename
-  - `git/repo.rs` - Git init/open, default .gitignore, initial commit
-  - `commands/file.rs` - read_file, write_file, suggest_rename, rename_file
-  - `commands/workspace.rs` - open_workspace, list_workspace_files, get_recent_workspaces
+  - `session/mod.rs` - Session module exports
+  - `session/tracker.rs` - Session state machine (Inactive/Active/Ended), timeout handling
+  - `storage/metadata.rs` - .meta/ JSON file persistence for session data
+  - `commands/session.rs` - Session tracking commands, metadata load/save
+  - `commands/git.rs` - Semantic commit commands (session, annotate, snapshot)
+  - `git/repo.rs` - Extended with commit_files, commit_snapshot, CommitType enum
 - **Frontend stores** (`app/src/lib/stores/`):
-  - `workspace.ts` - Workspace state, file list, recent workspaces
-  - `autosave.ts` - 2s debounced save, status tracking
-- **File explorer** (`app/src/lib/explorer/`):
-  - `FileTree.svelte` - File tree container
-  - `FileNode.svelte` - Recursive file/folder component
-  - `Explorer.svelte` - Workspace picker, recent workspaces, file browser
-- **StatusBar update** - Shows save status (Saving.../Saved/Unsaved changes)
-- **Dependencies added**: git2, tokio, chrono, walkdir, directories, tauri-plugin-fs, tauri-plugin-dialog
+  - `session.ts` - Session store with timeout checks, auto-commit on session end
+- **StatusBar update** - Shows "Note Name (5m)" during active session, "(32m) +2 annotations" after
+- **Session features**:
+  - Session starts on first edit, ends after 15min inactivity or 2hr max
+  - Post-session edits tracked as annotations
+  - Auto-commit to git on session end with semantic message format
+  - Session metadata persisted to .meta/{note}.json
 
-### Notes for M3 Session
+### Notes for M4 Terminal
 
-M3 requires:
-- Session state machine (active/inactive/ended)
-- 15-min inactivity timeout, 2-hour max duration
-- Display elapsed time in status bar
-- Auto-commit on session end with semantic message
-- Session metadata in .meta/ JSON files
-
-Key files to create:
-- `app/src-tauri/src/session/tracker.rs` - Session state machine
-- `app/src/lib/stores/session.ts` - Session state
-- Update StatusBar to show session duration
+M4 requires:
+- PTY spawning with portable-pty crate
+- xterm.js integration in Terminal.svelte
+- Bidirectional I/O between PTY and terminal
+- Working directory set to workspace root
+- Resize handling and scrollback
 
 ## Project Overview
 

@@ -1,4 +1,4 @@
-use git2::{Repository, Signature};
+use git2::{Repository, Signature, StatusOptions};
 use std::path::Path;
 use thiserror::Error;
 
@@ -9,6 +9,9 @@ pub enum GitError {
 
     #[error("Storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
+
+    #[error("Repository not found at {0}")]
+    RepoNotFound(String),
 }
 
 const DEFAULT_GITIGNORE: &str = r#"# Chronicle app state (not content)
@@ -89,6 +92,130 @@ fn create_initial_commit(repo: &Repository, gitignore_path: &Path) -> Result<(),
     Ok(())
 }
 
+/// Commit type for semantic commits
+#[derive(Debug, Clone, Copy)]
+pub enum CommitType {
+    Session,
+    Process,
+    Annotate,
+    Snapshot,
+}
+
+impl CommitType {
+    pub fn prefix(&self) -> &'static str {
+        match self {
+            CommitType::Session => "session",
+            CommitType::Process => "process",
+            CommitType::Annotate => "annotate",
+            CommitType::Snapshot => "snapshot",
+        }
+    }
+}
+
+/// Stage specific files and create a commit
+pub fn commit_files(
+    workspace_path: &Path,
+    files: &[&Path],
+    commit_type: CommitType,
+    title: &str,
+    detail: &str,
+) -> Result<String, GitError> {
+    if !is_git_repo(workspace_path) {
+        return Err(GitError::RepoNotFound(workspace_path.display().to_string()));
+    }
+
+    let repo = Repository::open(workspace_path)?;
+    let mut index = repo.index()?;
+
+    // Stage the specified files
+    for file_path in files {
+        // Get path relative to workspace
+        let relative_path = if file_path.starts_with(workspace_path) {
+            file_path.strip_prefix(workspace_path).unwrap()
+        } else {
+            *file_path
+        };
+
+        // Only add if file exists
+        let full_path = workspace_path.join(relative_path);
+        if full_path.exists() {
+            index.add_path(relative_path)?;
+            tracing::debug!("Staged: {}", relative_path.display());
+        }
+    }
+
+    index.write()?;
+
+    // Check if there's anything to commit
+    let tree_id = index.write_tree()?;
+    let tree = repo.find_tree(tree_id)?;
+
+    // Get parent commit
+    let parent = match repo.head() {
+        Ok(head) => Some(head.peel_to_commit()?),
+        Err(_) => None,
+    };
+
+    // Build commit message
+    let message = format!("{}: {} ({})", commit_type.prefix(), title, detail);
+
+    let sig = Signature::now("Chronicle", "chronicle@localhost")?;
+
+    let commit_id = if let Some(parent) = parent {
+        repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &[&parent])?
+    } else {
+        repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &[])?
+    };
+
+    let short_id = commit_id.to_string()[..7].to_string();
+    tracing::info!("Created commit {}: {}", short_id, message);
+
+    Ok(short_id)
+}
+
+/// Stage all changes and create a snapshot commit
+pub fn commit_snapshot(workspace_path: &Path, title: &str) -> Result<String, GitError> {
+    if !is_git_repo(workspace_path) {
+        return Err(GitError::RepoNotFound(workspace_path.display().to_string()));
+    }
+
+    let repo = Repository::open(workspace_path)?;
+    let mut index = repo.index()?;
+
+    // Add all changes
+    index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+    index.write()?;
+
+    let tree_id = index.write_tree()?;
+    let tree = repo.find_tree(tree_id)?;
+
+    let parent = repo.head()?.peel_to_commit()?;
+
+    let message = format!("snapshot: {}", title);
+    let sig = Signature::now("Chronicle", "chronicle@localhost")?;
+
+    let commit_id = repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &[&parent])?;
+
+    let short_id = commit_id.to_string()[..7].to_string();
+    tracing::info!("Created snapshot commit {}: {}", short_id, message);
+
+    Ok(short_id)
+}
+
+/// Check if there are uncommitted changes
+pub fn has_changes(workspace_path: &Path) -> Result<bool, GitError> {
+    if !is_git_repo(workspace_path) {
+        return Ok(false);
+    }
+
+    let repo = Repository::open(workspace_path)?;
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true);
+
+    let statuses = repo.statuses(Some(&mut opts))?;
+    Ok(!statuses.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +244,27 @@ mod tests {
         // Open second time should succeed
         let repo = init_or_open_repo(dir.path()).unwrap();
         assert!(repo.head().is_ok());
+    }
+
+    #[test]
+    fn test_commit_files() {
+        let dir = tempdir().unwrap();
+        init_or_open_repo(dir.path()).unwrap();
+
+        // Create a test file
+        let note_path = dir.path().join("test-note.md");
+        std::fs::write(&note_path, "# Test Note\n\nSome content").unwrap();
+
+        // Commit it
+        let commit_id = commit_files(
+            dir.path(),
+            &[Path::new("test-note.md")],
+            CommitType::Session,
+            "Test Note",
+            "5m",
+        )
+        .unwrap();
+
+        assert_eq!(commit_id.len(), 7);
     }
 }

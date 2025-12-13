@@ -216,13 +216,13 @@ M3.4 - Auto-commit on session events
 
 ### Acceptance Criteria
 
-- [ ] Status bar shows "Note Name (5m)" during active session
-- [ ] Session ends after 15 min inactivity
-- [ ] Session ends after 2 hours max
-- [ ] Post-session edits are "annotations"
-- [ ] Status shows "Note Name (32m) + 2 annotations"
-- [ ] Git commit created on session end
-- [ ] Commit message follows semantic format
+- [x] Status bar shows "Note Name (5m)" during active session
+- [x] Session ends after 15 min inactivity
+- [x] Session ends after 2 hours max
+- [x] Post-session edits are "annotations"
+- [x] Status shows "Note Name (32m) + 2 annotations"
+- [x] Git commit created on session end
+- [x] Commit message follows semantic format
 
 ### Dependencies
 

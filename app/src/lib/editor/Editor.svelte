@@ -5,6 +5,7 @@
   import { createExtensionsWithKeymap } from './extensions';
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
   import { autoSaveStore } from '../stores/autosave';
+  import { sessionStore } from '../stores/session';
   import { hasWorkspace } from '../stores/workspace';
 
   let editorContainer: HTMLDivElement | undefined;
@@ -24,6 +25,8 @@
       noteStore.updateContent(content);
       // Trigger auto-save debounce
       autoSaveStore.onContentChange();
+      // Record edit for session tracking
+      sessionStore.recordEdit();
     }
   }
 
@@ -123,8 +126,10 @@
   });
 
   // Handle new note creation
-  function handleNewNote() {
+  async function handleNewNote() {
     noteStore.newNote();
+    // Start session tracking for the new note
+    await sessionStore.startTracking('new-note');
   }
 
   // Focus the editor

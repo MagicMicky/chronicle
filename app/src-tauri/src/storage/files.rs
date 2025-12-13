@@ -18,6 +18,12 @@ pub enum StorageError {
 
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Parse error in {0}: {1}")]
+    ParseError(String, String),
+
+    #[error("Serialize error: {0}")]
+    SerializeError(String),
 }
 
 pub fn read_file(path: &Path) -> Result<String, StorageError> {

@@ -12,6 +12,7 @@
     type FileNode,
   } from '$lib/stores/workspace';
   import { noteStore, currentNote } from '$lib/stores/note';
+  import { sessionStore } from '$lib/stores/session';
   import { pickFolder } from '$lib/utils/dialog';
   import FileTree from './FileTree.svelte';
 
@@ -59,16 +60,25 @@
 
   async function handleFileClick(path: string) {
     try {
+      // Stop tracking current note's session first
+      await sessionStore.stopTracking();
+
       const content = await invoke<string>('read_file', { path });
       noteStore.openNote(path, content);
+
+      // Start tracking session for this file (TODO: load existing session from metadata)
+      await sessionStore.startTracking(path);
     } catch (e) {
       console.error('Failed to open file:', e);
     }
   }
 
-  function handleCloseWorkspace() {
+  async function handleCloseWorkspace() {
+    // Stop session tracking before closing
+    await sessionStore.stopTracking();
     workspaceStore.closeWorkspace();
     noteStore.closeNote();
+    sessionStore.reset();
   }
 </script>
 
