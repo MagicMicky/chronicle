@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { noteStore, currentNote } from './note';
-import { workspaceStore, hasWorkspace } from './workspace';
+import { workspaceStore, hasWorkspace, currentWorkspace } from './workspace';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -27,39 +27,66 @@ function createAutoSaveStore() {
 
   const triggerSave = async () => {
     const note = get(currentNote);
-    const workspace = get(hasWorkspace);
+    const workspace = get(currentWorkspace);
 
-    console.log('[AutoSave] triggerSave called', { note: note?.path, hasWorkspace: workspace });
+    console.log('[AutoSave] triggerSave called', { notePath: note?.path, isNew: note?.isNew, workspace: workspace?.path });
 
-    if (!note || !note.path || !workspace) {
-      console.log('[AutoSave] Skipping save - no note path or no workspace', { notePath: note?.path, workspace });
+    if (!note || !workspace) {
+      console.log('[AutoSave] Skipping save - no note or no workspace');
       return;
     }
 
     update((s) => ({ ...s, status: 'saving', error: null }));
 
     try {
-      // Write file
-      await invoke('write_file', { path: note.path, content: note.content });
+      let savePath = note.path;
 
-      // Check if rename is needed based on H1 heading
-      const newPath = await invoke<string | null>('suggest_rename', {
-        path: note.path,
-        content: note.content,
-      });
+      // For new notes, generate a path from the title
+      if (!savePath || note.isNew) {
+        // Extract title from content to generate filename
+        const titleMatch = note.content.match(/^#\s+(.+)$/m);
+        const title = titleMatch ? titleMatch[1].trim() : 'untitled';
 
-      if (newPath && newPath !== note.path) {
-        // Rename the file
-        const finalPath = await invoke<string>('rename_file', {
-          oldPath: note.path,
-          newPath,
-        });
-        noteStore.markSaved(finalPath);
-        // Refresh the file list to show new name
-        workspaceStore.refreshFiles();
-      } else {
-        noteStore.markSaved();
+        // Generate a slug from the title
+        const slug = title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          || 'untitled';
+
+        // Create filename with date prefix
+        const date = new Date().toISOString().split('T')[0];
+        const filename = `${date}-${slug}.md`;
+        savePath = `${workspace.path}/${filename}`;
+
+        console.log('[AutoSave] New note - generated path:', savePath);
       }
+
+      // Write file
+      await invoke('write_file', { path: savePath, content: note.content });
+      console.log('[AutoSave] File written:', savePath);
+
+      // For existing files, check if rename is needed based on H1 heading
+      if (note.path && !note.isNew) {
+        const newPath = await invoke<string | null>('suggest_rename', {
+          path: savePath,
+          content: note.content,
+        });
+
+        if (newPath && newPath !== savePath) {
+          // Rename the file
+          const finalPath = await invoke<string>('rename_file', {
+            oldPath: savePath,
+            newPath,
+          });
+          savePath = finalPath;
+          console.log('[AutoSave] File renamed to:', finalPath);
+        }
+      }
+
+      noteStore.markSaved(savePath);
+      // Refresh the file list to show new/renamed file
+      workspaceStore.refreshFiles();
 
       update((s) => ({ ...s, status: 'saved', lastSaved: new Date(), error: null }));
 
@@ -70,7 +97,7 @@ function createAutoSaveStore() {
       }, SAVED_DISPLAY_MS);
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      console.error('Auto-save failed:', error);
+      console.error('[AutoSave] Save failed:', error);
       update((s) => ({ ...s, status: 'error', error }));
     }
   };
@@ -83,11 +110,11 @@ function createAutoSaveStore() {
       const note = get(currentNote);
       const workspace = get(hasWorkspace);
 
-      console.log('[AutoSave] onContentChange', { notePath: note?.path, hasWorkspace: workspace });
+      console.log('[AutoSave] onContentChange', { notePath: note?.path, isNew: note?.isNew, hasWorkspace: workspace });
 
-      // Only auto-save if we have a workspace and the note has a path
-      if (!note || !note.path || !workspace) {
-        console.log('[AutoSave] Skipping - conditions not met');
+      // Only auto-save if we have a workspace and a note (path not required for new notes)
+      if (!note || !workspace) {
+        console.log('[AutoSave] Skipping - no note or no workspace');
         return;
       }
 
