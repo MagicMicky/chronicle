@@ -49,27 +49,44 @@
 <style>
   .status-bar {
     display: flex;
+    flex-direction: row;
     justify-content: space-between;
     align-items: center;
+    width: 100%;
     height: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    flex-shrink: 0;
     background: var(--status-bg, #1a1a1a);
     border-top: 1px solid var(--border-color, #333);
     padding: 0 12px;
     font-size: 12px;
     color: var(--text-muted, #888);
+    box-sizing: border-box;
   }
 
   .status-left,
   .status-center,
   .status-right {
     display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 12px;
+    white-space: nowrap;
   }
 
   .status-left {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+  }
+
+  .status-center {
+    flex-shrink: 0;
+  }
+
+  .status-right {
+    flex-shrink: 0;
   }
 
   .status-left .status-item {
