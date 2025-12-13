@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.svelte-kit/
+target/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Rust
+target/
+Cargo.lock
+
+# Tauri
+app/src-tauri/target/
+
+# MCP server
+mcp-server/node_modules/
+mcp-server/dist/
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
