@@ -3,10 +3,9 @@
   import { noteTitle, isNoteDirty, hasOpenNote } from '$lib/stores/note';
   import { hasWorkspace, currentWorkspace } from '$lib/stores/workspace';
   import {
-    sessionInfo,
-    sessionState,
-    sessionDuration,
-    annotationCount,
+    sessionState as sessionStateStore,
+    sessionDuration as sessionDurationStore,
+    annotationCount as annotationCountStore,
     formatDuration,
     type SessionStateType,
   } from '$lib/stores/session';
@@ -18,10 +17,9 @@
   $: noteOpen = $hasOpenNote;
   $: workspaceOpen = $hasWorkspace;
   $: workspaceName = $currentWorkspace?.name ?? '';
-  $: session = $sessionInfo;
-  $: state = $sessionState;
-  $: duration = $sessionDuration;
-  $: annotations = $annotationCount;
+  $: state = $sessionStateStore;
+  $: duration = $sessionDurationStore;
+  $: annotations = $annotationCountStore;
 
   // Reactive status text
   $: statusText = getStatusText(status, dirty, noteOpen);
