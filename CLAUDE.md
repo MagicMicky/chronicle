@@ -5,7 +5,7 @@
 - **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0)
 - **Next**: M3 Session (session tracking, duration, git commits)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
-- **Latest tag**: v0.2.2 (tag v0.3.0 after testing)
+- **Latest tag**: v0.3.0
 
 ### M2 Storage - What Was Built
 
