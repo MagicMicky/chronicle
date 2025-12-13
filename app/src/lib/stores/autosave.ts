@@ -29,7 +29,10 @@ function createAutoSaveStore() {
     const note = get(currentNote);
     const workspace = get(hasWorkspace);
 
+    console.log('[AutoSave] triggerSave called', { note: note?.path, hasWorkspace: workspace });
+
     if (!note || !note.path || !workspace) {
+      console.log('[AutoSave] Skipping save - no note path or no workspace', { notePath: note?.path, workspace });
       return;
     }
 
@@ -80,11 +83,15 @@ function createAutoSaveStore() {
       const note = get(currentNote);
       const workspace = get(hasWorkspace);
 
+      console.log('[AutoSave] onContentChange', { notePath: note?.path, hasWorkspace: workspace });
+
       // Only auto-save if we have a workspace and the note has a path
       if (!note || !note.path || !workspace) {
+        console.log('[AutoSave] Skipping - conditions not met');
         return;
       }
 
+      console.log('[AutoSave] Scheduling save in 2s');
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(triggerSave, DEBOUNCE_MS);
     },

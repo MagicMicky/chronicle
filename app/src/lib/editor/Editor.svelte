@@ -142,11 +142,9 @@
         Editor
       {/if}
     </span>
-    {#if !currentHasOpenNote}
-      <button class="new-note-btn" on:click={handleNewNote} title="New Note (Cmd+N)">
-        + New
-      </button>
-    {/if}
+    <button class="new-note-btn" on:click={handleNewNote} title="New Note (Cmd+N)">
+      + New
+    </button>
   </div>
   <div class="pane-content" class:has-editor={currentHasOpenNote}>
     {#if currentHasOpenNote}

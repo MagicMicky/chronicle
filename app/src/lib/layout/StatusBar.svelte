@@ -3,26 +3,23 @@
   import { noteTitle, isNoteDirty, hasOpenNote } from '$lib/stores/note';
   import { hasWorkspace, currentWorkspace } from '$lib/stores/workspace';
 
-  let status: SaveStatus = 'idle';
-  let dirty = false;
-  let title = '';
-  let noteOpen = false;
-  let workspaceOpen = false;
-  let workspaceName = '';
+  // Use $ prefix to subscribe to stores reactively
+  $: status = $saveStatus;
+  $: dirty = $isNoteDirty;
+  $: title = $noteTitle;
+  $: noteOpen = $hasOpenNote;
+  $: workspaceOpen = $hasWorkspace;
+  $: workspaceName = $currentWorkspace?.name ?? '';
 
-  saveStatus.subscribe((s) => (status = s));
-  isNoteDirty.subscribe((d) => (dirty = d));
-  noteTitle.subscribe((t) => (title = t));
-  hasOpenNote.subscribe((o) => (noteOpen = o));
-  hasWorkspace.subscribe((h) => (workspaceOpen = h));
-  currentWorkspace.subscribe((w) => (workspaceName = w?.name ?? ''));
+  // Reactive status text
+  $: statusText = getStatusText(status, dirty, noteOpen);
 
-  function getStatusText(): string {
-    if (status === 'saving') return 'Saving...';
-    if (status === 'saved') return 'Saved';
-    if (status === 'error') return 'Save failed';
-    if (dirty) return 'Unsaved changes';
-    if (noteOpen) return 'Ready';
+  function getStatusText(s: SaveStatus, isDirty: boolean, hasNote: boolean): string {
+    if (s === 'saving') return 'Saving...';
+    if (s === 'saved') return 'Saved';
+    if (s === 'error') return 'Save failed';
+    if (isDirty) return 'Unsaved changes';
+    if (hasNote) return 'Ready';
     return 'No file open';
   }
 </script>
@@ -40,8 +37,8 @@
     </span>
   </div>
   <div class="status-center">
-    <span class="status-item" class:saving={status === 'saving'} class:error={status === 'error'}>
-      {getStatusText()}
+    <span class="status-item" class:saving={status === 'saving'} class:error={status === 'error'} class:dirty={dirty}>
+      {statusText}
     </span>
   </div>
   <div class="status-right">
@@ -93,5 +90,9 @@
 
   .status-item.error {
     color: var(--error-color, #f44336);
+  }
+
+  .status-item.dirty {
+    color: var(--warning-color, #cca700);
   }
 </style>
