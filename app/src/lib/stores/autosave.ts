@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { getInvoke } from '$lib/utils/tauri';
 import { noteStore, currentNote } from './note';
 import { workspaceStore, hasWorkspace, currentWorkspace } from './workspace';
 import { fileStatusStore } from './fileStatus';
@@ -40,6 +40,7 @@ function createAutoSaveStore() {
     update((s) => ({ ...s, status: 'saving', error: null }));
 
     try {
+      const invoke = await getInvoke();
       let savePath = note.path;
 
       // For new notes, generate a unique path via backend (handles conflicts)

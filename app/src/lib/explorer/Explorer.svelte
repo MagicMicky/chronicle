@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { getInvoke } from '$lib/utils/tauri';
   import { uiStore } from '$lib/stores/ui';
   import {
     workspaceStore,
@@ -84,6 +84,7 @@
       // Stop tracking current note's session (this commits)
       await sessionStore.stopTracking();
 
+      const invoke = await getInvoke();
       const content = await invoke<string>('read_file', { path });
       noteStore.openNote(path, content);
 

@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { getInvoke } from '$lib/utils/tauri';
 
 export interface FileNode {
   name: string;
@@ -47,6 +47,7 @@ function createWorkspaceStore() {
     openWorkspace: async (path: string) => {
       update((s) => ({ ...s, isLoading: true, error: null }));
       try {
+        const invoke = await getInvoke();
         const info = await invoke<WorkspaceInfo>('open_workspace', { path });
         const files = await invoke<FileNode[]>('list_workspace_files', { workspacePath: path });
         update((s) => ({
@@ -69,6 +70,7 @@ function createWorkspaceStore() {
 
       update((s) => ({ ...s, isLoading: true }));
       try {
+        const invoke = await getInvoke();
         const files = await invoke<FileNode[]>('list_workspace_files', {
           workspacePath: state.currentWorkspace.path,
         });
@@ -81,6 +83,7 @@ function createWorkspaceStore() {
 
     loadRecentWorkspaces: async () => {
       try {
+        const invoke = await getInvoke();
         const workspaces = await invoke<Workspace[]>('get_recent_workspaces');
         update((s) => ({ ...s, recentWorkspaces: workspaces }));
       } catch (e) {

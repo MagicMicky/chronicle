@@ -37,6 +37,9 @@
     const { FitAddon: FitAddonClass } = await import('@xterm/addon-fit');
     const { WebLinksAddon: WebLinksAddonClass } = await import('@xterm/addon-web-links');
 
+    // Import xterm CSS
+    await import('@xterm/xterm/css/xterm.css');
+
     // Create terminal with dark theme
     terminal = new Terminal({
       theme: {
@@ -76,25 +79,43 @@
 
     // Spawn PTY process
     try {
+      console.log('[Terminal] Spawning PTY with cwd:', workspacePath);
+      console.log('[Terminal] Terminal size:', terminal.cols, 'x', terminal.rows);
+
       pty = await spawnPty({
         cols: terminal.cols,
         rows: terminal.rows,
         cwd: workspacePath,
       });
 
+      console.log('[Terminal] PTY spawned successfully');
+
       // Wire up data flow: PTY -> Terminal
       pty.onData((data: string) => {
+        console.log('[Terminal] PTY data received:', data.length, 'bytes');
         terminal?.write(data);
+      });
+
+      // Handle PTY exit
+      pty.onExit((e) => {
+        console.log('[Terminal] PTY exited with code:', e.exitCode, 'signal:', e.signal);
+        terminal?.writeln(`\r\n[Process exited with code ${e.exitCode}]`);
       });
 
       // Wire up data flow: Terminal -> PTY
       terminal.onData((data: string) => {
+        console.log('[Terminal] User input:', JSON.stringify(data));
         pty?.write(data);
       });
 
       terminalStore.setSpawned(workspacePath);
+      console.log('[Terminal] Terminal ready');
+
+      // Write a test message to see if terminal display works
+      terminal.writeln('Terminal initialized. Waiting for shell...');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.error('[Terminal] Failed to spawn PTY:', error);
       terminalStore.setError(message);
       terminal.writeln(`\r\n\x1b[31mFailed to spawn terminal: ${message}\x1b[0m`);
     }

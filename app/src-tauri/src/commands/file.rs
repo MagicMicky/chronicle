@@ -1,4 +1,5 @@
 use crate::storage;
+use std::env;
 use std::path::Path;
 
 #[tauri::command]
@@ -34,4 +35,16 @@ pub async fn generate_note_path(workspace_path: String, content: String) -> Stri
     storage::generate_unique_path(Path::new(&workspace_path), &content)
         .display()
         .to_string()
+}
+
+/// Get the user's default shell from environment
+#[tauri::command]
+pub fn get_default_shell() -> String {
+    if cfg!(target_os = "windows") {
+        // Windows: prefer PowerShell
+        env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+    } else {
+        // Unix: use SHELL env var, fallback to /bin/sh
+        env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
 }

@@ -27,6 +27,7 @@ pub fn run() {
             commands::suggest_rename,
             commands::rename_file,
             commands::generate_note_path,
+            commands::get_default_shell,
             // Tracking commands (simplified)
             commands::get_tracker_info,
             commands::start_tracking,

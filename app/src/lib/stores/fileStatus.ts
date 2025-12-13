@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { getInvoke } from '$lib/utils/tauri';
 import { currentWorkspace } from './workspace';
 import { currentNote, isNoteDirty } from './note';
 
@@ -33,6 +33,7 @@ function createFileStatusStore() {
 
       update((s) => ({ ...s, isLoading: true }));
       try {
+        const invoke = await getInvoke();
         const files = await invoke<string[]>('get_git_status', {
           workspacePath: workspace.path,
         });

@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { getInvoke } from '$lib/utils/tauri';
 import { noteTitle } from './note';
 import { currentWorkspace } from './workspace';
 
@@ -27,6 +27,7 @@ function createSessionStore() {
 
   const refreshTrackerInfo = async () => {
     try {
+      const invoke = await getInvoke();
       const info = await invoke<TrackerInfo | null>('get_tracker_info');
       update((s) => ({ ...s, trackerInfo: info, error: null }));
     } catch (e) {
@@ -59,6 +60,7 @@ function createSessionStore() {
     startTracking: async (notePath: string) => {
       update((s) => ({ ...s, isLoading: true }));
       try {
+        const invoke = await getInvoke();
         await invoke('start_tracking', { notePath });
         await refreshTrackerInfo();
         startDurationUpdates();
@@ -74,6 +76,7 @@ function createSessionStore() {
     stopTracking: async (): Promise<TrackerInfo | null> => {
       stopDurationUpdates();
       try {
+        const invoke = await getInvoke();
         const trackerInfo = await invoke<TrackerInfo | null>('stop_tracking');
 
         // Commit to git if we have valid tracking data
