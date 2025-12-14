@@ -20,24 +20,21 @@
   let lastCols = 0;
   let lastRows = 0;
 
-  // Improved debounce with trailing edge guarantee
-  let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-  let pendingResize = false;
+  // Debounce resize with requestAnimationFrame for smooth rendering
+  let resizeScheduled = false;
 
   function debouncedFit() {
-    pendingResize = true;
-    if (resizeTimeout) return; // Already scheduled
+    if (resizeScheduled) return;
+    resizeScheduled = true;
 
-    resizeTimeout = setTimeout(async () => {
-      resizeTimeout = null;
-      if (pendingResize) {
-        pendingResize = false;
-        await fitTerminal();
-      }
-    }, 150);
+    // Use rAF to sync with browser render cycle - more responsive than setTimeout
+    requestAnimationFrame(() => {
+      resizeScheduled = false;
+      fitTerminal();
+    });
   }
 
-  async function fitTerminal() {
+  function fitTerminal() {
     if (!fitAddon || !terminal || !pty) return;
 
     // Get proposed dimensions WITHOUT applying them yet
@@ -47,16 +44,18 @@
     // Only resize if dimensions actually changed
     if (dims.cols === lastCols && dims.rows === lastRows) return;
 
-    console.log('[Terminal] Resize:', lastCols, 'x', lastRows, '->', dims.cols, 'x', dims.rows);
+    // Preserve scroll position
+    const scrollTop = terminal.buffer.active.viewportY;
+    const wasAtBottom = scrollTop >= terminal.buffer.active.baseY;
 
-    // Step 1: Resize PTY first (critical for proper synchronization)
+    // Resize both PTY and xterm atomically (same frame)
     pty.resize(dims.cols, dims.rows);
-
-    // Step 2: Small delay to allow PTY to process the resize
-    await new Promise(resolve => setTimeout(resolve, 16));
-
-    // Step 3: Now apply dimensions to xterm.js
     terminal.resize(dims.cols, dims.rows);
+
+    // Restore scroll position (or stay at bottom if we were there)
+    if (wasAtBottom) {
+      terminal.scrollToBottom();
+    }
 
     // Update tracking
     lastCols = dims.cols;
@@ -117,9 +116,6 @@
     // Use actual calculated dimensions
     const cols = terminal.cols;
     const rows = terminal.rows;
-
-    console.log('[Terminal] Container size:', terminalContainer.clientWidth, 'x', terminalContainer.clientHeight);
-    console.log('[Terminal] Terminal dimensions:', cols, 'cols x', rows, 'rows');
 
     // Spawn PTY process
     try {
@@ -201,7 +197,6 @@
   onDestroy(() => {
     unsubWorkspace?.();
     unsubTerminal?.();
-    if (resizeTimeout) clearTimeout(resizeTimeout);
     resizeObserver?.disconnect();
     window.removeEventListener('resize', debouncedFit);
     pty?.kill();
