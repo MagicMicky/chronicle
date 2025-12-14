@@ -34,6 +34,7 @@ export async function spawnPty(options: PtyOptions): Promise<IPty> {
   const { command, args } = await getDefaultShell();
 
   return spawn(command, args, {
+    name: 'xterm-256color', // Sets TERM environment variable for proper line editing
     cols: options.cols,
     rows: options.rows,
     cwd: options.cwd,
