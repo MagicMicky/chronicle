@@ -16,16 +16,24 @@
   let resizeObserver: ResizeObserver | null = null;
   let initialized = false;
 
-  // Debounce resize to prevent rapid resize calls
+  // Debounce resize to prevent rapid resize calls and flickering
   let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastCols = 0;
+  let lastRows = 0;
+
   function debouncedFit() {
     if (resizeTimeout) clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(() => {
       if (fitAddon && terminal && pty) {
         fitAddon.fit();
-        pty.resize(terminal.cols, terminal.rows);
+        // Only resize PTY if dimensions actually changed
+        if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
+          lastCols = terminal.cols;
+          lastRows = terminal.rows;
+          pty.resize(terminal.cols, terminal.rows);
+        }
       }
-    }, 100);
+    }, 150);
   }
 
   async function initTerminal(workspacePath: string) {
@@ -79,40 +87,28 @@
 
     // Spawn PTY process
     try {
-      console.log('[Terminal] Spawning PTY with cwd:', workspacePath);
-      console.log('[Terminal] Terminal size:', terminal.cols, 'x', terminal.rows);
-
       pty = await spawnPty({
         cols: terminal.cols,
         rows: terminal.rows,
         cwd: workspacePath,
       });
 
-      console.log('[Terminal] PTY spawned successfully');
-
       // Wire up data flow: PTY -> Terminal
       pty.onData((data: string) => {
-        console.log('[Terminal] PTY data received:', data.length, 'bytes');
         terminal?.write(data);
       });
 
       // Handle PTY exit
       pty.onExit((e) => {
-        console.log('[Terminal] PTY exited with code:', e.exitCode, 'signal:', e.signal);
         terminal?.writeln(`\r\n[Process exited with code ${e.exitCode}]`);
       });
 
       // Wire up data flow: Terminal -> PTY
       terminal.onData((data: string) => {
-        console.log('[Terminal] User input:', JSON.stringify(data));
         pty?.write(data);
       });
 
       terminalStore.setSpawned(workspacePath);
-      console.log('[Terminal] Terminal ready');
-
-      // Write a test message to see if terminal display works
-      terminal.writeln('Terminal initialized. Waiting for shell...');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('[Terminal] Failed to spawn PTY:', error);

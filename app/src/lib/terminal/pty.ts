@@ -8,12 +8,10 @@ export async function getDefaultShell(): Promise<{ command: string; args: string
   try {
     const invoke = await getInvoke();
     const shell = await invoke<string>('get_default_shell');
-    console.log('[PTY] Using shell from environment:', shell);
 
     // Use -i for interactive shell (enables prompt, history, etc.)
     return { command: shell, args: ['-i'] };
-  } catch (e) {
-    console.warn('[PTY] Failed to get shell from env, using fallback:', e);
+  } catch {
     // Fallback
     const platform = navigator.platform.toLowerCase();
     if (platform.includes('win')) {
