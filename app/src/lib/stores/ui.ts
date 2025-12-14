@@ -14,7 +14,7 @@ export interface PaneState {
 const defaultState: PaneState = {
   explorerWidth: 250,
   aiOutputWidth: 350,
-  terminalHeight: 200,
+  terminalHeight: 300, // ~18 rows at 13px font - comfortable for interactive use
   collapsed: {
     explorer: false,
     aiOutput: false,
@@ -32,7 +32,7 @@ function createUIStore() {
     setAIOutputWidth: (width: number) =>
       update((state) => ({ ...state, aiOutputWidth: Math.max(200, Math.min(600, width)) })),
     setTerminalHeight: (height: number) =>
-      update((state) => ({ ...state, terminalHeight: Math.max(100, Math.min(400, height)) })),
+      update((state) => ({ ...state, terminalHeight: Math.max(150, Math.min(500, height)) })),
     toggleCollapse: (pane: 'explorer' | 'aiOutput' | 'terminal') =>
       update((state) => ({
         ...state,
