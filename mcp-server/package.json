@@ -1,12 +1,17 @@
 {
   "name": "chronicle-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "MCP server for Chronicle note-taking app",
   "type": "module",
   "scripts": {
     "dev": "npx tsx src/index.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "compile": "bun build src/index.ts --compile --outfile dist/chronicle-mcp",
+    "compile:linux": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile dist/chronicle-mcp-x86_64-unknown-linux-gnu",
+    "compile:windows": "bun build src/index.ts --compile --target=bun-windows-x64 --outfile dist/chronicle-mcp-x86_64-pc-windows-msvc.exe",
+    "compile:mac-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile dist/chronicle-mcp-aarch64-apple-darwin",
+    "compile:mac-x64": "bun build src/index.ts --compile --target=bun-darwin-x64 --outfile dist/chronicle-mcp-x86_64-apple-darwin"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

@@ -2,10 +2,15 @@ use crate::git;
 use crate::models::{FileNode, Workspace, WorkspaceInfo};
 use crate::storage;
 use chrono::Utc;
+use serde_json::json;
 use std::path::Path;
+use tauri::Manager;
 
 #[tauri::command]
-pub async fn open_workspace(path: String) -> Result<WorkspaceInfo, String> {
+pub async fn open_workspace(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<WorkspaceInfo, String> {
     let workspace_path = Path::new(&path);
 
     // Validate path exists and is directory
@@ -23,6 +28,11 @@ pub async fn open_workspace(path: String) -> Result<WorkspaceInfo, String> {
             false
         }
     };
+
+    // Create .mcp.json for Claude Code integration
+    if let Err(e) = create_mcp_config(&app_handle, workspace_path) {
+        tracing::warn!("Failed to create .mcp.json: {}", e);
+    }
 
     // List files
     let files = storage::list_files(workspace_path).map_err(|e| e.to_string())?;
@@ -52,6 +62,49 @@ pub async fn open_workspace(path: String) -> Result<WorkspaceInfo, String> {
         is_git_repo,
         file_count,
     })
+}
+
+/// Create .mcp.json in the workspace for Claude Code auto-discovery
+fn create_mcp_config(app_handle: &tauri::AppHandle, workspace_path: &Path) -> Result<(), String> {
+    // Get the path to the sidecar binary
+    let sidecar_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?
+        .join("binaries")
+        .join(if cfg!(windows) {
+            "chronicle-mcp.exe"
+        } else {
+            "chronicle-mcp"
+        });
+
+    let sidecar_str = sidecar_path
+        .to_str()
+        .ok_or("Invalid sidecar path")?
+        .to_string();
+
+    // Create MCP config
+    let mcp_config = json!({
+        "mcpServers": {
+            "chronicle": {
+                "command": sidecar_str,
+                "args": [],
+                "env": {}
+            }
+        }
+    });
+
+    let mcp_path = workspace_path.join(".mcp.json");
+
+    // Write the config
+    let config_str =
+        serde_json::to_string_pretty(&mcp_config).map_err(|e| format!("JSON error: {}", e))?;
+
+    std::fs::write(&mcp_path, config_str).map_err(|e| format!("Failed to write .mcp.json: {}", e))?;
+
+    tracing::info!("Created .mcp.json at {:?}", mcp_path);
+
+    Ok(())
 }
 
 #[tauri::command]
