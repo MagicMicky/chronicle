@@ -28,6 +28,7 @@ pub struct WsServer {
 }
 
 impl WsServer {
+    #[allow(dead_code)] // Public API for future use
     pub fn new(port: u16, app_state: SharedAppState) -> Self {
         let (broadcast_tx, _) = broadcast::channel(100);
         Self {
@@ -59,6 +60,7 @@ impl WsServer {
     }
 
     /// Broadcast a message to all connected clients
+    #[allow(dead_code)] // Public API for future use
     pub fn broadcast(&self, msg: String) {
         if let Err(e) = self.broadcast_tx.send(msg) {
             tracing::debug!("No clients connected to receive broadcast: {}", e);
@@ -66,6 +68,7 @@ impl WsServer {
     }
 
     /// Get a broadcast sender for use from other parts of the app
+    #[allow(dead_code)] // Public API for future use
     pub fn get_broadcast_sender(&self) -> broadcast::Sender<String> {
         self.broadcast_tx.clone()
     }

@@ -66,17 +66,39 @@ pub async fn open_workspace(
 
 /// Create .mcp.json in the workspace for Claude Code auto-discovery
 fn create_mcp_config(app_handle: &tauri::AppHandle, workspace_path: &Path) -> Result<(), String> {
+    // Get the target triple for the current platform
+    let target_triple = env!("TAURI_ENV_TARGET_TRIPLE");
+
     // Get the path to the sidecar binary
-    let sidecar_path = app_handle
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {}", e))?
-        .join("binaries")
-        .join(if cfg!(windows) {
-            "chronicle-mcp.exe"
-        } else {
-            "chronicle-mcp"
-        });
+    let sidecar_path = if cfg!(debug_assertions) {
+        // In dev mode, use the binaries directory in src-tauri
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.join("binaries").join(format!(
+            "chronicle-mcp-{}{}",
+            target_triple,
+            if cfg!(windows) { ".exe" } else { "" }
+        ))
+    } else {
+        // In release mode, use the bundled resource
+        app_handle
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?
+            .join("binaries")
+            .join(format!(
+                "chronicle-mcp-{}{}",
+                target_triple,
+                if cfg!(windows) { ".exe" } else { "" }
+            ))
+    };
+
+    // Verify the binary exists
+    if !sidecar_path.exists() {
+        return Err(format!(
+            "MCP server binary not found at {}. Build it with 'bun run compile' in mcp-server/",
+            sidecar_path.display()
+        ));
+    }
 
     let sidecar_str = sidecar_path
         .to_str()

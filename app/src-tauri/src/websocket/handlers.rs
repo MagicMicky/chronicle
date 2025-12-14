@@ -18,6 +18,7 @@ pub struct WsMessage {
     #[serde(default)]
     pub data: Option<Value>,
     #[serde(default)]
+    #[allow(dead_code)] // Part of WebSocket message format, may be used by future handlers
     pub params: Option<Value>,
 }
 
