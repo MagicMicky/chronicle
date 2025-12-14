@@ -16,24 +16,51 @@
   let resizeObserver: ResizeObserver | null = null;
   let initialized = false;
 
-  // Debounce resize to prevent rapid resize calls and flickering
-  let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Track dimensions to avoid unnecessary resizes
   let lastCols = 0;
   let lastRows = 0;
 
+  // Improved debounce with trailing edge guarantee
+  let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  let pendingResize = false;
+
   function debouncedFit() {
-    if (resizeTimeout) clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(() => {
-      if (fitAddon && terminal && pty) {
-        fitAddon.fit();
-        // Only resize PTY if dimensions actually changed
-        if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
-          lastCols = terminal.cols;
-          lastRows = terminal.rows;
-          pty.resize(terminal.cols, terminal.rows);
-        }
+    pendingResize = true;
+    if (resizeTimeout) return; // Already scheduled
+
+    resizeTimeout = setTimeout(async () => {
+      resizeTimeout = null;
+      if (pendingResize) {
+        pendingResize = false;
+        await fitTerminal();
       }
     }, 150);
+  }
+
+  async function fitTerminal() {
+    if (!fitAddon || !terminal || !pty) return;
+
+    // Get proposed dimensions WITHOUT applying them yet
+    const dims = fitAddon.proposeDimensions();
+    if (!dims) return;
+
+    // Only resize if dimensions actually changed
+    if (dims.cols === lastCols && dims.rows === lastRows) return;
+
+    console.log('[Terminal] Resize:', lastCols, 'x', lastRows, '->', dims.cols, 'x', dims.rows);
+
+    // Step 1: Resize PTY first (critical for proper synchronization)
+    pty.resize(dims.cols, dims.rows);
+
+    // Step 2: Small delay to allow PTY to process the resize
+    await new Promise(resolve => setTimeout(resolve, 16));
+
+    // Step 3: Now apply dimensions to xterm.js
+    terminal.resize(dims.cols, dims.rows);
+
+    // Update tracking
+    lastCols = dims.cols;
+    lastRows = dims.rows;
   }
 
   async function initTerminal(workspacePath: string) {
@@ -70,6 +97,7 @@
       cursorBlink: true,
       scrollback: 10000,
       allowProposedApi: true,
+      scrollOnUserInput: true,
     });
 
     // Load addons
@@ -81,15 +109,23 @@
     // Open terminal in container
     terminal.open(terminalContainer);
 
-    // Wait a tick for DOM to settle, then fit
+    // Wait for DOM to fully settle before fitting
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     await new Promise((resolve) => requestAnimationFrame(resolve));
     fitAddon.fit();
+
+    // Use actual calculated dimensions
+    const cols = terminal.cols;
+    const rows = terminal.rows;
+
+    console.log('[Terminal] Container size:', terminalContainer.clientWidth, 'x', terminalContainer.clientHeight);
+    console.log('[Terminal] Terminal dimensions:', cols, 'cols x', rows, 'rows');
 
     // Spawn PTY process
     try {
       pty = await spawnPty({
-        cols: terminal.cols,
-        rows: terminal.rows,
+        cols,
+        rows,
         cwd: workspacePath,
       });
 
@@ -116,11 +152,18 @@
       terminal.writeln(`\r\n\x1b[31mFailed to spawn terminal: ${message}\x1b[0m`);
     }
 
-    // Set up resize observer
+    // Store initial dimensions
+    lastCols = cols;
+    lastRows = rows;
+
+    // Use ResizeObserver for container size changes (best practice)
     resizeObserver = new ResizeObserver(() => {
       debouncedFit();
     });
     resizeObserver.observe(terminalContainer);
+
+    // Also listen for window resize as fallback
+    window.addEventListener('resize', debouncedFit);
   }
 
   function handleCollapse() {
@@ -152,6 +195,7 @@
         terminalStore.clearFocusRequest();
       }
     });
+    // Note: ResizeObserver handles pane size changes, no need for uiStore subscription
   });
 
   onDestroy(() => {
@@ -159,6 +203,7 @@
     unsubTerminal?.();
     if (resizeTimeout) clearTimeout(resizeTimeout);
     resizeObserver?.disconnect();
+    window.removeEventListener('resize', debouncedFit);
     pty?.kill();
     terminal?.dispose();
     terminalStore.reset();
@@ -222,7 +267,7 @@
   .pane-content {
     flex: 1;
     overflow: hidden;
-    padding: 4px;
+    /* No padding - let xterm.js handle spacing to avoid dimension calculation issues */
   }
 
   /* xterm.js container fills available space */
