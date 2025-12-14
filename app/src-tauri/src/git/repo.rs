@@ -20,6 +20,9 @@ const DEFAULT_GITIGNORE: &str = r#"# Chronicle app state (not content)
 # MCP configuration (auto-generated, machine-specific paths)
 .mcp.json
 
+# Claude Code settings (auto-generated permissions)
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db

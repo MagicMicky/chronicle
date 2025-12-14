@@ -34,6 +34,11 @@ pub async fn open_workspace(
         tracing::warn!("Failed to create .mcp.json: {}", e);
     }
 
+    // Create .claude/settings.json to auto-approve Chronicle MCP tools
+    if let Err(e) = create_claude_settings(workspace_path) {
+        tracing::warn!("Failed to create .claude/settings.json: {}", e);
+    }
+
     // List files
     let files = storage::list_files(workspace_path).map_err(|e| e.to_string())?;
     let file_count = storage::count_files(&files);
@@ -125,6 +130,48 @@ fn create_mcp_config(app_handle: &tauri::AppHandle, workspace_path: &Path) -> Re
     std::fs::write(&mcp_path, config_str).map_err(|e| format!("Failed to write .mcp.json: {}", e))?;
 
     tracing::info!("Created .mcp.json at {:?}", mcp_path);
+
+    Ok(())
+}
+
+/// Create .claude/settings.json to auto-approve Chronicle MCP tools
+fn create_claude_settings(workspace_path: &Path) -> Result<(), String> {
+    let claude_dir = workspace_path.join(".claude");
+
+    // Create .claude directory if it doesn't exist
+    if !claude_dir.exists() {
+        std::fs::create_dir_all(&claude_dir)
+            .map_err(|e| format!("Failed to create .claude directory: {}", e))?;
+    }
+
+    let settings_path = claude_dir.join("settings.json");
+
+    // Don't overwrite existing settings
+    if settings_path.exists() {
+        tracing::debug!(".claude/settings.json already exists, skipping");
+        return Ok(());
+    }
+
+    // Create settings with auto-approved Chronicle MCP tools
+    let settings = json!({
+        "permissions": {
+            "allow": [
+                "mcp__chronicle__process_meeting",
+                "mcp__chronicle__get_history",
+                "mcp__chronicle__get_version",
+                "mcp__chronicle__compare_versions",
+                "mcp__chronicle__chronicle_status"
+            ]
+        }
+    });
+
+    let settings_str =
+        serde_json::to_string_pretty(&settings).map_err(|e| format!("JSON error: {}", e))?;
+
+    std::fs::write(&settings_path, settings_str)
+        .map_err(|e| format!("Failed to write .claude/settings.json: {}", e))?;
+
+    tracing::info!("Created .claude/settings.json at {:?}", settings_path);
 
     Ok(())
 }
