@@ -254,3 +254,89 @@ fn parse_action_items(content: &str) -> Vec<ActionItem> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_processed_content_with_all_sections() {
+        let content = "# Meeting Notes\n\n## TL;DR\nThis was a productive meeting.\n\n## Key Points\n- Point one\n- Point two\n\n## Action Items\n- [ ] Do thing one \u{2014} @alice\n- [x] Already done \u{2014} @bob\n\n## Open Questions\n- What about timeline?\n";
+        let result = parse_processed_content(content);
+        assert_eq!(
+            result.tldr,
+            Some("This was a productive meeting.".to_string())
+        );
+        assert_eq!(result.key_points.len(), 2);
+        assert_eq!(result.key_points[0], "Point one");
+        assert_eq!(result.key_points[1], "Point two");
+        assert_eq!(result.actions.len(), 2);
+        assert!(!result.actions[0].completed);
+        assert!(result.actions[1].completed);
+        assert_eq!(result.actions[0].owner, Some("alice".to_string()));
+        assert_eq!(result.actions[1].owner, Some("bob".to_string()));
+        assert_eq!(result.questions.len(), 1);
+        assert_eq!(result.questions[0], "What about timeline?");
+    }
+
+    #[test]
+    fn test_parse_empty_content() {
+        let result = parse_processed_content("");
+        assert!(result.tldr.is_none());
+        assert!(result.key_points.is_empty());
+        assert!(result.actions.is_empty());
+        assert!(result.questions.is_empty());
+        assert!(result.raw_notes.is_none());
+    }
+
+    #[test]
+    fn test_parse_content_with_only_tldr() {
+        // Parser requires a # title line before ## sections (split on \n## )
+        let content = "# Title\n\n## TL;DR\nJust a summary, nothing else.";
+        let result = parse_processed_content(content);
+        assert_eq!(
+            result.tldr,
+            Some("Just a summary, nothing else.".to_string())
+        );
+        assert!(result.key_points.is_empty());
+        assert!(result.actions.is_empty());
+    }
+
+    #[test]
+    fn test_parse_action_items_without_owner() {
+        let content = "# Title\n\n## Action Items\n- [ ] Do something\n- [ ] Do another thing\n";
+        let result = parse_processed_content(content);
+        assert_eq!(result.actions.len(), 2);
+        assert!(result.actions[0].owner.is_none());
+        assert!(!result.actions[0].completed);
+    }
+
+    #[test]
+    fn test_parse_bullet_list_with_different_prefixes() {
+        let content = "# Title\n\n## Key Points\n- Dash item\n* Star item\n";
+        let result = parse_processed_content(content);
+        assert_eq!(result.key_points.len(), 2);
+        assert_eq!(result.key_points[0], "Dash item");
+        assert_eq!(result.key_points[1], "Star item");
+    }
+
+    #[test]
+    fn test_parse_content_with_raw_notes_section() {
+        let content =
+            "# Title\n\n## TL;DR\nSummary here.\n\n## Raw Notes\nOriginal raw content here.\n";
+        let result = parse_processed_content(content);
+        assert!(result.raw_notes.is_some());
+        assert_eq!(
+            result.raw_notes.unwrap(),
+            "Original raw content here."
+        );
+    }
+
+    #[test]
+    fn test_parse_content_ignores_unknown_sections() {
+        let content = "# Title\n\n## TL;DR\nSummary.\n\n## Random Section\nSome content.\n\n## Key Points\n- Point A\n";
+        let result = parse_processed_content(content);
+        assert_eq!(result.tldr, Some("Summary.".to_string()));
+        assert_eq!(result.key_points.len(), 1);
+    }
+}

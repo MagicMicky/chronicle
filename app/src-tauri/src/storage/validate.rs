@@ -33,3 +33,66 @@ pub fn validate_workspace_path(workspace: &Path, target: &Path) -> Result<PathBu
 
     Ok(canonical_target)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_valid_path_within_workspace() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        let file = workspace.join("test.md");
+        std::fs::write(&file, "content").unwrap();
+        assert!(validate_workspace_path(workspace, &file).is_ok());
+    }
+
+    #[test]
+    fn test_traversal_rejected() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        let bad_path = workspace.join("../../etc/passwd");
+        assert!(validate_workspace_path(workspace, &bad_path).is_err());
+    }
+
+    #[test]
+    fn test_relative_path_within_workspace() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        std::fs::write(workspace.join("note.md"), "hi").unwrap();
+        let result = validate_workspace_path(workspace, Path::new("note.md"));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_new_file_in_workspace() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        // File doesn't exist yet but parent (workspace) does
+        let new_file = workspace.join("new-note.md");
+        let result = validate_workspace_path(workspace, &new_file);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_absolute_path_outside_workspace_rejected() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        let outside = Path::new("/tmp/evil.md");
+        let result = validate_workspace_path(workspace, outside);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_subdirectory_path_accepted() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        let subdir = workspace.join("notes");
+        std::fs::create_dir(&subdir).unwrap();
+        let file = subdir.join("meeting.md");
+        std::fs::write(&file, "content").unwrap();
+        let result = validate_workspace_path(workspace, &file);
+        assert!(result.is_ok());
+    }
+}
