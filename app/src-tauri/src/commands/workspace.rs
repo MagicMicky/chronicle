@@ -18,7 +18,7 @@ pub async fn open_workspace(
         return Err(format!("Path is not a directory: {}", path));
     }
 
-    tracing::info!("Opening workspace at {}", path);
+    tracing::info!("Opening workspace");
 
     // Initialize or open git repo
     let is_git_repo = match git::init_or_open_repo(workspace_path) {
@@ -129,7 +129,16 @@ fn create_mcp_config(app_handle: &tauri::AppHandle, workspace_path: &Path) -> Re
 
     std::fs::write(&mcp_path, config_str).map_err(|e| format!("Failed to write .mcp.json: {}", e))?;
 
-    tracing::info!("Created .mcp.json at {:?}", mcp_path);
+    // Set restrictive file permissions on Unix (0o600 = owner read/write only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&mcp_path, permissions)
+            .map_err(|e| format!("Failed to set .mcp.json permissions: {}", e))?;
+    }
+
+    tracing::info!("Created .mcp.json in workspace");
 
     Ok(())
 }

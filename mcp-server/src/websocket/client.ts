@@ -1,14 +1,14 @@
 import WebSocket from "ws";
+import { z } from "zod";
 import type {
   WsRequest,
-  WsResponse,
   WsPush,
   CurrentFileResult,
   WorkspacePathResult,
 } from "./messages.js";
+import { CONFIG } from "../config.js";
 
-const WS_PORT = process.env.CHRONICLE_WS_PORT || "9847";
-const WS_URL = `ws://127.0.0.1:${WS_PORT}`;
+const WS_URL = `ws://127.0.0.1:${CONFIG.wsPort}`;
 
 let ws: WebSocket | null = null;
 let requestId = 0;
@@ -21,6 +21,25 @@ const pendingRequests = new Map<
 >();
 
 let pushHandler: ((event: string, data: unknown) => void) | null = null;
+
+// Zod schemas for incoming WebSocket messages
+const WsResponseSchema = z.object({
+  type: z.literal("response"),
+  id: z.string(),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+});
+
+const WsPushSchema = z.object({
+  type: z.literal("push"),
+  event: z.string(),
+  data: z.unknown().optional(),
+});
+
+const WsIncomingSchema = z.discriminatedUnion("type", [
+  WsResponseSchema,
+  WsPushSchema,
+]);
 
 export function setPushHandler(
   handler: (event: string, data: unknown) => void
@@ -41,14 +60,26 @@ export async function connect(): Promise<void> {
 
       ws.on("message", (data: WebSocket.Data) => {
         try {
-          const msg = JSON.parse(data.toString()) as WsResponse | WsPush;
+          const raw = JSON.parse(data.toString());
+          const parsed = WsIncomingSchema.safeParse(raw);
+
+          if (!parsed.success) {
+            console.error("Invalid WebSocket message:", parsed.error.message);
+            return;
+          }
+
+          const msg = parsed.data;
 
           if (msg.type === "response" && pendingRequests.has(msg.id)) {
             const pending = pendingRequests.get(msg.id)!;
             pendingRequests.delete(msg.id);
-            pending.resolve(msg.result);
+            if (msg.error) {
+              pending.reject(new Error(msg.error));
+            } else {
+              pending.resolve(msg.result);
+            }
           } else if (msg.type === "push" && pushHandler) {
-            pushHandler((msg as WsPush).event, (msg as WsPush).data);
+            pushHandler(msg.event, msg.data);
           }
         } catch (e) {
           console.error("Failed to parse WebSocket message:", e);
@@ -124,13 +155,13 @@ async function request<T>(
     });
     ws!.send(JSON.stringify(msg));
 
-    // Timeout after 30 seconds
+    // Timeout using configured value
     setTimeout(() => {
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
         reject(new Error("Request timeout"));
       }
-    }, 30000);
+    }, CONFIG.wsTimeout);
   });
 }
 

@@ -5,7 +5,7 @@ import { getHistory, getVersion, compareVersions } from "./history.js";
 
 // Schema for process_meeting tool
 const processMeetingSchema = {
-  path: z.string().describe(
+  path: z.string().max(4096).describe(
     "Path to note file relative to workspace, or 'current' for the active file in Chronicle"
   ),
   style: z
@@ -17,6 +17,7 @@ const processMeetingSchema = {
     ),
   focus: z
     .string()
+    .max(2048)
     .optional()
     .describe(
       "Optional specific aspect to emphasize (e.g., 'action items only', 'timeline gaps')"
@@ -25,7 +26,7 @@ const processMeetingSchema = {
 
 // Schema for get_history tool
 const getHistorySchema = {
-  path: z.string().describe(
+  path: z.string().max(4096).describe(
     "Path to note file relative to workspace, or 'current' for the active file"
   ),
   limit: z.number().optional().default(10).describe(
@@ -35,19 +36,19 @@ const getHistorySchema = {
 
 // Schema for get_version tool
 const getVersionSchema = {
-  path: z.string().describe("Path to note file relative to workspace"),
-  commit: z.string().describe(
+  path: z.string().max(4096).describe("Path to note file relative to workspace"),
+  commit: z.string().max(256).describe(
     "Commit hash (short or full) or relative ref (HEAD~1, HEAD~2)"
   ),
 };
 
 // Schema for compare_versions tool
 const compareVersionsSchema = {
-  path: z.string().describe("Path to note file relative to workspace"),
-  from_commit: z.string().optional().default("HEAD~1").describe(
+  path: z.string().max(4096).describe("Path to note file relative to workspace"),
+  from_commit: z.string().max(256).optional().default("HEAD~1").describe(
     "Starting commit (older)"
   ),
-  to_commit: z.string().optional().default("HEAD").describe(
+  to_commit: z.string().max(256).optional().default("HEAD").describe(
     "Ending commit (newer)"
   ),
 };

@@ -81,7 +81,7 @@ async fn handle_push(message: WsMessage, app_state: Arc<RwLock<AppState>>) {
     let event = message.event.as_deref().unwrap_or("");
     let data = message.data.unwrap_or(Value::Null);
 
-    tracing::info!("Received push event: {} with data: {:?}", event, data);
+    tracing::info!("Received push event: {}", event);
 
     match event {
         "processingComplete" => {

@@ -26,9 +26,9 @@ pub async fn update_app_state(
     }
 
     tracing::debug!(
-        "App state updated: file={:?}, workspace={:?}",
-        app_state.current_file_path,
-        app_state.workspace_path
+        "App state updated: file_set={}, workspace_set={}",
+        app_state.current_file_path.is_some(),
+        app_state.workspace_path.is_some()
     );
 
     Ok(())

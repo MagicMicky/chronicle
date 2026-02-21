@@ -1,16 +1,69 @@
 use crate::storage;
+use crate::SharedAppState;
 use serde::Serialize;
 use std::env;
 use std::path::Path;
+use tauri::State;
 
-#[tauri::command]
-pub async fn read_file(path: String) -> Result<String, String> {
-    storage::read_file(Path::new(&path)).map_err(|e| e.to_string())
+/// Maximum file size: 50MB
+const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+
+/// Get workspace path from shared app state, returning an error if not set
+async fn get_workspace_path(state: &SharedAppState) -> Result<String, String> {
+    let app_state = state.read().await;
+    app_state
+        .workspace_path
+        .clone()
+        .ok_or_else(|| "No workspace open".to_string())
 }
 
 #[tauri::command]
-pub async fn write_file(path: String, content: String) -> Result<(), String> {
-    storage::write_file_atomic(Path::new(&path), &content).map_err(|e| e.to_string())
+pub async fn read_file(
+    path: String,
+    state: State<'_, SharedAppState>,
+) -> Result<String, String> {
+    let workspace = get_workspace_path(&state).await?;
+    let workspace_path = Path::new(&workspace);
+    let target_path = Path::new(&path);
+
+    // Validate path is within workspace
+    let validated = storage::validate_workspace_path(workspace_path, target_path)?;
+
+    // Check file size before reading
+    let metadata = std::fs::metadata(&validated)
+        .map_err(|e| format!("Cannot access file: {}", e))?;
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(format!(
+            "File exceeds maximum size of {}MB",
+            MAX_FILE_SIZE / (1024 * 1024)
+        ));
+    }
+
+    storage::read_file(&validated).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn write_file(
+    path: String,
+    content: String,
+    state: State<'_, SharedAppState>,
+) -> Result<(), String> {
+    let workspace = get_workspace_path(&state).await?;
+    let workspace_path = Path::new(&workspace);
+    let target_path = Path::new(&path);
+
+    // Validate path is within workspace
+    let validated = storage::validate_workspace_path(workspace_path, target_path)?;
+
+    // Check content size before writing
+    if content.len() as u64 > MAX_FILE_SIZE {
+        return Err(format!(
+            "Content exceeds maximum size of {}MB",
+            MAX_FILE_SIZE / (1024 * 1024)
+        ));
+    }
+
+    storage::write_file_atomic(&validated, &content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -70,8 +123,18 @@ pub struct ActionItem {
 
 /// Read a processed markdown file and parse its structured sections
 #[tauri::command]
-pub fn read_processed_file(path: String) -> Result<ParsedAIOutput, String> {
-    let content = storage::read_file(Path::new(&path)).map_err(|e| e.to_string())?;
+pub async fn read_processed_file(
+    path: String,
+    state: State<'_, SharedAppState>,
+) -> Result<ParsedAIOutput, String> {
+    let workspace = get_workspace_path(&state).await?;
+    let workspace_path = Path::new(&workspace);
+    let target_path = Path::new(&path);
+
+    // Validate path is within workspace
+    let validated = storage::validate_workspace_path(workspace_path, target_path)?;
+
+    let content = storage::read_file(&validated).map_err(|e| e.to_string())?;
     Ok(parse_processed_content(&content))
 }
 
@@ -129,10 +192,10 @@ fn parse_bullet_list(content: &str) -> Vec<String> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                Some(trimmed[2..].trim().to_string())
-            } else if trimmed.starts_with("• ") {
-                Some(trimmed[3..].trim().to_string())
+            if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+                Some(rest.trim().to_string())
+            } else if let Some(rest) = trimmed.strip_prefix("• ") {
+                Some(rest.trim().to_string())
             } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
                 // Handle continuation lines or non-bulleted items
                 Some(trimmed.to_string())
@@ -152,22 +215,22 @@ fn parse_action_items(content: &str) -> Vec<ActionItem> {
             let trimmed = line.trim();
 
             // Check for checkbox pattern: - [ ] or - [x]
-            let (completed, text_start) = if trimmed.starts_with("- [ ] ") {
-                (false, 6)
-            } else if trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
-                (true, 6)
-            } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                (false, 2)
+            let (completed, text_part) = if let Some(rest) = trimmed.strip_prefix("- [ ] ") {
+                (false, rest)
+            } else if let Some(rest) = trimmed.strip_prefix("- [x] ").or_else(|| trimmed.strip_prefix("- [X] ")) {
+                (true, rest)
+            } else if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+                (false, rest)
             } else {
                 return None;
             };
 
-            let text_part = trimmed[text_start..].trim();
+            let text_part = text_part.trim();
             if text_part.is_empty() {
                 return None;
             }
 
-            // Try to extract owner from patterns like "— @owner" or "— owner"
+            // Try to extract owner from patterns like " — @owner" or " — owner"
             let separator = " — ";
             let (text, owner) = if let Some(dash_pos) = text_part.find(separator) {
                 let main_text = text_part[..dash_pos].trim();

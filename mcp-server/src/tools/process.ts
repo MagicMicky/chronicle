@@ -9,8 +9,23 @@ import {
 } from "../websocket/client.js";
 import { parseMarkers } from "../processing/parser.js";
 import { buildPrompt, ProcessingStyle } from "../processing/prompt-builder.js";
+import { CONFIG } from "../config.js";
 
 const anthropic = new Anthropic();
+
+/**
+ * Validate that a resolved path stays within the workspace
+ */
+function validateWorkspacePath(workspace: string, target: string): string {
+  const resolved = path.resolve(workspace, target);
+  const normalized = path.normalize(resolved);
+
+  if (!normalized.startsWith(workspace + path.sep) && normalized !== workspace) {
+    throw new Error("Path must be within workspace");
+  }
+
+  return normalized;
+}
 
 export interface ProcessMeetingInput {
   path: string; // 'current' or relative path
@@ -59,13 +74,18 @@ export async function processMeeting(
       throw new Error("No workspace open in Chronicle");
     }
     workspacePath = wsPath;
+
+    // Validate that the current file path is within workspace
+    validateWorkspacePath(workspacePath, relativePath);
   } else {
     const wsPath = await getWorkspacePath();
     if (!wsPath) {
       throw new Error("No workspace open in Chronicle");
     }
     workspacePath = wsPath;
-    filePath = path.join(workspacePath, input.path);
+
+    // Validate the user-provided path before any file operations
+    filePath = validateWorkspacePath(workspacePath, input.path);
     relativePath = input.path;
     content = await fs.readFile(filePath, "utf-8");
   }
@@ -85,8 +105,8 @@ export async function processMeeting(
 
   // 4. Call Claude API
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
+    model: CONFIG.model,
+    max_tokens: CONFIG.maxTokens,
     system,
     messages: [{ role: "user", content: user }],
   });
@@ -130,7 +150,7 @@ export async function processMeeting(
   const processingMeta = {
     processed_at: new Date().toISOString(),
     style,
-    model: "claude-sonnet-4-20250514",
+    model: CONFIG.model,
     tokens_used: {
       input: response.usage.input_tokens,
       output: response.usage.output_tokens,

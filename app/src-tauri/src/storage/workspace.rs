@@ -24,6 +24,7 @@ pub fn list_files(workspace_path: &Path) -> Result<Vec<FileNode>, StorageError> 
     let mut root_nodes: Vec<FileNode> = Vec::new();
 
     for entry in WalkDir::new(workspace_path)
+        .follow_links(false)
         .min_depth(1)
         .max_depth(1)
         .into_iter()
@@ -70,6 +71,7 @@ fn list_files_recursive(dir_path: &Path) -> Result<Vec<FileNode>, StorageError> 
     let mut nodes: Vec<FileNode> = Vec::new();
 
     for entry in WalkDir::new(dir_path)
+        .follow_links(false)
         .min_depth(1)
         .max_depth(1)
         .into_iter()

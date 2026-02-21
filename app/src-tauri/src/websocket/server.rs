@@ -2,9 +2,13 @@ use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::Message;
 
 use super::handlers;
+
+/// Maximum WebSocket message size: 10MB
+const MAX_WS_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 
 /// Shared application state that tracks current file and workspace
 #[derive(Default)]
@@ -81,7 +85,13 @@ async fn handle_connection(
     app_state: SharedAppState,
     broadcast_tx: broadcast::Sender<String>,
 ) {
-    let ws_stream = match accept_async(stream).await {
+    let ws_config = WebSocketConfig {
+        max_message_size: Some(MAX_WS_MESSAGE_SIZE),
+        max_frame_size: Some(MAX_WS_MESSAGE_SIZE),
+        ..Default::default()
+    };
+
+    let ws_stream = match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
         Ok(ws) => ws,
         Err(e) => {
             tracing::error!("WebSocket handshake failed: {}", e);
@@ -100,7 +110,7 @@ async fn handle_connection(
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        tracing::debug!("Received WebSocket message: {}", text);
+                        tracing::debug!("Received WebSocket message ({} bytes)", text.len());
                         if let Some(response) = handlers::handle_message(&text, app_state.clone()).await {
                             if let Err(e) = write.send(Message::Text(response)).await {
                                 tracing::error!("Failed to send WebSocket response: {}", e);
