@@ -17,6 +17,7 @@
     {
       category: 'Navigation',
       items: [
+        { keys: 'Cmd+P', action: 'Quick File Jump' },
         { keys: 'Cmd+B', action: 'Toggle Explorer' },
         { keys: 'Cmd+Shift+A', action: 'Toggle AI Output' },
         { keys: 'Cmd+`', action: 'Focus Terminal' },

@@ -8,6 +8,7 @@
   import { onMount } from 'svelte';
   import StatusBar from '$lib/layout/StatusBar.svelte';
   import ShortcutGuide from '$lib/components/ShortcutGuide.svelte';
+  import QuickOpen from '$lib/components/QuickOpen.svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
 
   interface Props {
@@ -16,6 +17,7 @@
 
   let { children }: Props = $props();
   let showShortcuts = $state(false);
+  let showQuickOpen = $state(false);
 
   onMount(() => {
     let aiUnlisteners: UnlistenFn[] = [];
@@ -58,6 +60,11 @@
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'A') {
         e.preventDefault();
         uiStore.toggleCollapse('aiOutput');
+      }
+      // Cmd/Ctrl + P: Quick file jump
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'p') {
+        e.preventDefault();
+        showQuickOpen = !showQuickOpen;
       }
       // Cmd/Ctrl + Shift + P: Trigger AI Processing
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'P') {
@@ -103,6 +110,7 @@
 </div>
 
 <ShortcutGuide bind:show={showShortcuts} />
+<QuickOpen bind:show={showQuickOpen} />
 
 <style>
   .app-container {
