@@ -148,17 +148,38 @@ export const PROCESSING_STYLES = [
   { value: 'structured', label: 'Structured' },
 ] as const;
 
+// Timeout for processing (30 seconds)
+const PROCESSING_TIMEOUT_MS = 30_000;
+let processingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+// Clear any active processing timeout
+function clearProcessingTimeout() {
+  if (processingTimeoutId !== null) {
+    clearTimeout(processingTimeoutId);
+    processingTimeoutId = null;
+  }
+}
+
 // Trigger processing of the current note
 export async function triggerProcessing(style?: string): Promise<void> {
   const currentStyle = style ?? get(processingStyle);
 
   // Set processing state immediately
   aiOutputStore.setProcessing(true);
+  clearProcessingTimeout();
+
+  // Set a timeout so the UI doesn't get stuck if the MCP server is not connected
+  processingTimeoutId = setTimeout(() => {
+    if (get(isAIProcessing)) {
+      aiOutputStore.setError('Processing timed out. Is the MCP server running?');
+    }
+  }, PROCESSING_TIMEOUT_MS);
 
   try {
     await invoke('trigger_processing', { style: currentStyle });
     // The actual result/error will come via Tauri events (ai:processing-complete / ai:processing-error)
   } catch (err) {
+    clearProcessingTimeout();
     const errorMsg = err instanceof Error ? err.message : String(err);
     aiOutputStore.setError(errorMsg);
   }
@@ -179,6 +200,7 @@ export async function initAIEventListeners(): Promise<UnlistenFn[]> {
       };
     }>('ai:processing-complete', (event) => {
       console.log('Received ai:processing-complete event:', event.payload);
+      clearProcessingTimeout();
       aiOutputStore.handleProcessingComplete(event.payload);
     })
   );
@@ -187,6 +209,7 @@ export async function initAIEventListeners(): Promise<UnlistenFn[]> {
   unlisteners.push(
     await listen<{ error: string }>('ai:processing-error', (event) => {
       console.log('Received ai:processing-error event:', event.payload);
+      clearProcessingTimeout();
       aiOutputStore.setError(event.payload.error);
     })
   );
