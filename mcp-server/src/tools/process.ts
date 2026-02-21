@@ -38,7 +38,36 @@ export interface ProcessMeetingResult {
   message: string;
   title?: string;
   style?: string;
-  tokens?: { input: number; output: number };
+  tokens?: { input: number; output: number; cache_read?: number; cache_creation?: number };
+}
+
+/**
+ * Call Claude API with retry logic for rate limits and connection errors
+ */
+async function callClaudeWithRetry(
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  maxRetries = 3,
+): Promise<Anthropic.Message> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (error) {
+      if (error instanceof Anthropic.RateLimitError && attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+        console.error(`Rate limited, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      if (error instanceof Anthropic.APIConnectionError && attempt < maxRetries) {
+        const delay = 1000 * Math.pow(2, attempt);
+        console.error(`Connection error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Max retries exceeded");
 }
 
 /**
@@ -103,20 +132,52 @@ export async function processMeeting(
     input.focus
   );
 
-  // 4. Call Claude API
-  const response = await anthropic.messages.create({
-    model: CONFIG.model,
-    max_tokens: CONFIG.maxTokens,
-    system,
-    messages: [{ role: "user", content: user }],
-  });
+  // 4. Token estimate check
+  const estimatedInputTokens = Math.ceil((system.length + user.length) / 4);
+  if (estimatedInputTokens > 150000) {
+    throw new Error(
+      `Note is very large (~${estimatedInputTokens} estimated tokens). ` +
+      `Consider using 'brief' style or splitting the note.`
+    );
+  }
+
+  // 5. Call Claude API with prompt caching and retry logic
+  let response: Anthropic.Message;
+  try {
+    response = await callClaudeWithRetry({
+      model: CONFIG.model,
+      max_tokens: CONFIG.maxTokens,
+      system: [
+        {
+          type: "text" as const,
+          text: system,
+          cache_control: { type: "ephemeral" as const }
+        }
+      ],
+      messages: [{ role: "user", content: user }],
+    });
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) {
+      throw new Error("Invalid API key. Check your ANTHROPIC_API_KEY environment variable.");
+    }
+    if (error instanceof Anthropic.RateLimitError) {
+      throw new Error("Rate limited after retries. Please wait a moment and try again.");
+    }
+    if (error instanceof Anthropic.APIConnectionError) {
+      throw new Error("Cannot reach Claude API. Check your internet connection.");
+    }
+    if (error instanceof Anthropic.BadRequestError) {
+      throw new Error("Input too large or invalid. Try using 'brief' processing style.");
+    }
+    throw error;
+  }
 
   const processedContent = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("\n");
 
-  // 5. Save raw backup if it doesn't exist
+  // 6. Save raw backup if it doesn't exist
   const rawDir = path.join(workspacePath, ".raw");
   const baseName = path.basename(filePath, ".md");
   const rawPath = path.join(rawDir, `${baseName}.raw.md`);
@@ -130,10 +191,10 @@ export async function processMeeting(
     await fs.writeFile(rawPath, content, "utf-8");
   }
 
-  // 6. Write processed content to main file
+  // 7. Write processed content to main file
   await fs.writeFile(filePath, processedContent, "utf-8");
 
-  // 7. Update metadata
+  // 8. Update metadata
   const metaDir = path.join(workspacePath, ".meta");
   const metaPath = path.join(metaDir, `${baseName}.json`);
   await fs.mkdir(metaDir, { recursive: true });
@@ -154,6 +215,8 @@ export async function processMeeting(
     tokens_used: {
       input: response.usage.input_tokens,
       output: response.usage.output_tokens,
+      cache_read: (response.usage as any).cache_read_input_tokens || 0,
+      cache_creation: (response.usage as any).cache_creation_input_tokens || 0,
     },
     markers_found: {
       thoughts: parsedMarkers.thoughts.length,
@@ -167,7 +230,7 @@ export async function processMeeting(
   const updatedMeta = { ...existingMeta, processing: processingMeta };
   await fs.writeFile(metaPath, JSON.stringify(updatedMeta, null, 2), "utf-8");
 
-  // 8. Push result to Chronicle app
+  // 9. Push result to Chronicle app
   sendPush("processingComplete", {
     path: relativePath,
     result: {
@@ -177,7 +240,7 @@ export async function processMeeting(
     },
   });
 
-  // 9. Extract title from original content
+  // 10. Extract title from original content
   const titleMatch = content.match(/^#\s+(.+)$/m);
   const title = titleMatch ? titleMatch[1] : relativePath;
 
