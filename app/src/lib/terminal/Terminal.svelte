@@ -4,6 +4,7 @@
   import { terminalStore } from '$lib/stores/terminal';
   import { currentWorkspace } from '$lib/stores/workspace';
   import { spawnPty, type Pty } from './pty';
+  import { Minus } from 'lucide-svelte';
   import type { Terminal as XTerm } from '@xterm/xterm';
   import type { FitAddon } from '@xterm/addon-fit';
   import type { WebLinksAddon } from '@xterm/addon-web-links';
@@ -208,8 +209,8 @@
 <div class="terminal">
   <div class="pane-header">
     <span class="pane-title">Terminal</span>
-    <button class="collapse-btn" onclick={handleCollapse} title="Collapse Terminal">
-      <span class="icon">&#x2212;</span>
+    <button class="collapse-btn" onclick={handleCollapse} title="Collapse Terminal" aria-label="Collapse Terminal">
+      <Minus size={14} />
     </button>
   </div>
   <div class="pane-content" bind:this={terminalContainer}></div>

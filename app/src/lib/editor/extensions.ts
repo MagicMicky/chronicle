@@ -7,7 +7,7 @@ import { languages } from '@codemirror/language-data';
 import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 
-import { chronicleTheme, chronicleSyntaxHighlighting } from './theme';
+import { chronicleTheme, chronicleSyntaxHighlighting, lightChronicleSyntaxHighlighting } from './theme';
 import { markers } from './markers';
 
 export interface EditorConfig {
@@ -15,6 +15,7 @@ export interface EditorConfig {
   lineWrapping?: boolean;
   tabSize?: number;
   readOnly?: boolean;
+  theme?: 'light' | 'dark';
 }
 
 const defaultConfig: EditorConfig = {
@@ -69,7 +70,7 @@ export function createExtensions(
 
     // Theme and syntax highlighting
     chronicleTheme,
-    chronicleSyntaxHighlighting,
+    mergedConfig.theme === 'light' ? lightChronicleSyntaxHighlighting : chronicleSyntaxHighlighting,
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 
     // Chronicle semantic markers

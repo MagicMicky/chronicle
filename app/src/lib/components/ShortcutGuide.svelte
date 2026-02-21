@@ -48,10 +48,10 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if show}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="overlay" onclick={close} role="dialog" aria-label="Keyboard shortcuts">
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+  <div class="overlay" onclick={close} onkeydown={(e) => { if (e.key === 'Escape') close(); }} role="dialog" aria-label="Keyboard shortcuts" tabindex="-1">
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
       <div class="modal-header">
         <h2>Keyboard Shortcuts</h2>
         <button class="close-btn" onclick={close} aria-label="Close">&times;</button>

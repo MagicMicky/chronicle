@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FileNode } from '$lib/stores/workspace';
   import type { FileStatus } from '$lib/stores/fileStatus';
+  import { ChevronRight, ChevronDown, FileText } from 'lucide-svelte';
 
   export let node: FileNode;
   export let depth: number = 0;
@@ -43,9 +44,15 @@
   >
     <span class="icon">
       {#if isDirectory}
-        <span class="chevron" class:expanded>{expanded ? '\u25BC' : '\u25B6'}</span>
+        <span class="chevron" class:expanded>
+          {#if expanded}
+            <ChevronDown size={14} />
+          {:else}
+            <ChevronRight size={14} />
+          {/if}
+        </span>
       {:else}
-        <span class="file-icon">&#128196;</span>
+        <span class="file-icon"><FileText size={14} /></span>
       {/if}
     </span>
     <span class="name">{node.name}</span>

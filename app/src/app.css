@@ -1,6 +1,18 @@
 /* Chronicle - Global Styles */
 
 :root {
+  /* Typography */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-size-base: 14px;
+  --font-size-sm: 12px;
+  --font-size-xs: 11px;
+  --line-height: 1.5;
+}
+
+/* Dark Theme (default) */
+[data-theme="dark"],
+:root:not([data-theme]) {
   /* Colors - Dark Theme */
   --bg-primary: #1e1e1e;
   --bg-secondary: #252525;
@@ -23,13 +35,55 @@
   --status-bg: #1a1a1a;
   --hover-bg: #333;
 
-  /* Typography */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-  --font-size-base: 14px;
-  --font-size-sm: 12px;
-  --font-size-xs: 11px;
-  --line-height: 1.5;
+  /* Editor / Syntax (for CodeMirror CSS variable theme) */
+  --editor-gutter-bg: #1e1e1e;
+  --editor-line-highlight: #2d2d2d;
+  --editor-selection: #264f78;
+  --editor-cursor: #e0e0e0;
+  --syntax-heading: #4fc1ff;
+  --syntax-bold: #569cd6;
+  --syntax-italic: #c586c0;
+  --syntax-link: #0078d4;
+  --syntax-code: #ce9178;
+  --syntax-quote: #6a9955;
+  --syntax-list: #d7ba7d;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e8e8e8;
+  --text-primary: #1e1e1e;
+  --text-secondary: #444444;
+  --text-muted: #666666;
+  --accent-color: #0066cc;
+  --accent-hover: #004fa3;
+  --border-color: #d4d4d4;
+  --error-color: #d32f2f;
+  --success-color: #2e7d32;
+  --warning-color: #f57c00;
+
+  /* Pane-specific backgrounds */
+  --pane-bg: #ffffff;
+  --header-bg: #f5f5f5;
+  --editor-bg: #ffffff;
+  --terminal-bg: #f8f8f8;
+  --status-bg: #f0f0f0;
+  --hover-bg: #d4d4d4;
+
+  /* Editor / Syntax */
+  --editor-gutter-bg: #f5f5f5;
+  --editor-line-highlight: #f0f7ff;
+  --editor-selection: rgba(0, 102, 204, 0.2);
+  --editor-cursor: #1e1e1e;
+  --syntax-heading: #0550ae;
+  --syntax-bold: #1e1e1e;
+  --syntax-italic: #6639ba;
+  --syntax-link: #0066cc;
+  --syntax-code: #0a3069;
+  --syntax-quote: #57606a;
+  --syntax-list: #0550ae;
 }
 
 /* Reset */
@@ -131,4 +185,14 @@ pre {
 ::selection {
   background-color: var(--accent-color);
   color: white;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

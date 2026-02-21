@@ -17,6 +17,7 @@
   import { autoSaveStore } from '$lib/stores/autosave';
   import { pickFolder } from '$lib/utils/dialog';
   import FileTree from './FileTree.svelte';
+  import { FolderOpen, X, Minus } from 'lucide-svelte';
 
   let files: FileNode[] = [];
   let currentFilePath: string | null = null;
@@ -128,12 +129,13 @@
           class="action-btn"
           on:click={handleCloseWorkspace}
           title="Close Workspace"
+          aria-label="Close Workspace"
         >
-          <span class="icon">&times;</span>
+          <X size={14} />
         </button>
       {/if}
-      <button class="collapse-btn" on:click={handleCollapse} title="Collapse Explorer">
-        <span class="icon">&#x2212;</span>
+      <button class="collapse-btn" on:click={handleCollapse} title="Collapse Explorer" aria-label="Collapse Explorer">
+        <Minus size={14} />
       </button>
     </div>
   </div>
@@ -146,7 +148,7 @@
       <FileTree {files} {currentFilePath} onFileClick={handleFileClick} {getStatus} />
     {:else}
       <div class="placeholder">
-        <span class="placeholder-icon">&#128193;</span>
+        <span class="placeholder-icon"><FolderOpen size={32} /></span>
         <span class="placeholder-text">File Explorer</span>
         <span class="placeholder-hint">Open a workspace to see files</span>
         <button class="open-btn" on:click={handleOpenWorkspace}>

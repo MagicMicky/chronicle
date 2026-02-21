@@ -6,6 +6,7 @@
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
   import { autoSaveStore } from '../stores/autosave';
   import { sessionStore } from '../stores/session';
+  import { FileText } from 'lucide-svelte';
 
   let editorContainer: HTMLDivElement | undefined;
   let editorView: EditorView | null = null;
@@ -17,6 +18,13 @@
   let currentNoteTitle = '';
   let currentIsDirty = false;
   let pendingContent: string | null = null;
+  let themeObserver: MutationObserver | null = null;
+
+  // Detect current theme from data-theme attribute
+  function getCurrentTheme(): 'light' | 'dark' {
+    if (typeof document === 'undefined') return 'dark';
+    return (document.documentElement.getAttribute('data-theme') as 'light' | 'dark') || 'dark';
+  }
 
   // Handle content changes from the editor
   function handleContentChange(content: string) {
@@ -41,7 +49,7 @@
 
     const state = EditorState.create({
       doc: initialContent,
-      extensions: createExtensionsWithKeymap(handleContentChange),
+      extensions: createExtensionsWithKeymap(handleContentChange, { theme: getCurrentTheme() }),
     });
 
     editorView = new EditorView({
@@ -93,6 +101,20 @@
     const unsubTitle = noteTitle.subscribe((v) => (currentNoteTitle = v));
     const unsubDirty = isNoteDirty.subscribe((v) => (currentIsDirty = v));
 
+    // Watch for theme changes to rebuild editor with correct syntax colors
+    themeObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
+          // Rebuild editor with new theme syntax highlighting
+          if (editorView) {
+            const content = editorView.state.doc.toString();
+            createEditor(content);
+          }
+        }
+      }
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     // Subscribe to note store
     unsubscribe = noteStore.subscribe((state) => {
       if (state.currentNote) {
@@ -116,6 +138,7 @@
 
   onDestroy(() => {
     if (unsubscribe) unsubscribe();
+    themeObserver?.disconnect();
     if (editorView) {
       editorView.destroy();
       editorView = null;
@@ -144,7 +167,7 @@
         Editor
       {/if}
     </span>
-    <button class="new-note-btn" on:click={handleNewNote} title="New Note (Cmd+N)">
+    <button class="new-note-btn" on:click={handleNewNote} title="New Note (Cmd+N)" aria-label="New Note">
       + New
     </button>
   </div>
@@ -153,7 +176,7 @@
       <div class="editor-container" bind:this={editorContainer}></div>
     {:else}
       <div class="placeholder">
-        <span class="placeholder-icon">&#128221;</span>
+        <span class="placeholder-icon"><FileText size={32} /></span>
         <span class="placeholder-text">Markdown Editor</span>
         <span class="placeholder-hint">Create or open a note to start writing</span>
         <button class="placeholder-btn" on:click={handleNewNote}>
