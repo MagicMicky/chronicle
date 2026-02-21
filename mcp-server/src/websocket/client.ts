@@ -21,6 +21,7 @@ const pendingRequests = new Map<
 >();
 
 let pushHandler: ((event: string, data: unknown) => void) | null = null;
+let requestHandler: ((method: string, data: unknown) => void) | null = null;
 
 // Zod schemas for incoming WebSocket messages
 const WsResponseSchema = z.object({
@@ -36,15 +37,29 @@ const WsPushSchema = z.object({
   data: z.unknown().optional(),
 });
 
+const WsIncomingRequestSchema = z.object({
+  type: z.literal("request"),
+  id: z.string(),
+  method: z.string(),
+  data: z.unknown().optional(),
+});
+
 const WsIncomingSchema = z.discriminatedUnion("type", [
   WsResponseSchema,
   WsPushSchema,
+  WsIncomingRequestSchema,
 ]);
 
 export function setPushHandler(
   handler: (event: string, data: unknown) => void
 ): void {
   pushHandler = handler;
+}
+
+export function setRequestHandler(
+  handler: (method: string, data: unknown) => void
+): void {
+  requestHandler = handler;
 }
 
 export async function connect(): Promise<void> {
@@ -80,6 +95,8 @@ export async function connect(): Promise<void> {
             }
           } else if (msg.type === "push" && pushHandler) {
             pushHandler(msg.event, msg.data);
+          } else if (msg.type === "request" && requestHandler) {
+            requestHandler(msg.method, msg.data);
           }
         } catch (e) {
           console.error("Failed to parse WebSocket message:", e);

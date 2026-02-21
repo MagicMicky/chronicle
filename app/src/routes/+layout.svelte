@@ -2,7 +2,8 @@
   import '../app.css';
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
-  import { initAIEventListeners } from '$lib/stores/aiOutput';
+  import { initAIEventListeners, triggerProcessing } from '$lib/stores/aiOutput';
+  import { hasOpenNote } from '$lib/stores/note';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import StatusBar from '$lib/layout/StatusBar.svelte';
@@ -38,6 +39,13 @@
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'A') {
         e.preventDefault();
         uiStore.toggleCollapse('aiOutput');
+      }
+      // Cmd/Ctrl + Shift + P: Trigger AI Processing
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'P') {
+        e.preventDefault();
+        if (get(hasOpenNote)) {
+          triggerProcessing();
+        }
       }
       // Cmd/Ctrl + `: Focus Terminal (expand if collapsed)
       if ((e.metaKey || e.ctrlKey) && e.key === '`') {

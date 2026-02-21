@@ -151,7 +151,7 @@
       <div class="state-container ready">
         <span class="state-icon">&#129302;</span>
         <span class="state-text">Ready to process</span>
-        <span class="state-hint">Use Claude Code: "process current note"</span>
+        <span class="state-hint">Press Cmd/Ctrl+Shift+P or click Process in the status bar</span>
       </div>
     {/if}
   </div>

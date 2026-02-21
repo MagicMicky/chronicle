@@ -136,6 +136,34 @@ export const isLoadingSections = derived(
   ($s) => $s.isLoadingSections
 );
 
+// Processing style preference
+export const processingStyle = writable<string>('standard');
+
+// Available processing styles
+export const PROCESSING_STYLES = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'brief', label: 'Brief' },
+  { value: 'detailed', label: 'Detailed' },
+  { value: 'focused', label: 'Focused' },
+  { value: 'structured', label: 'Structured' },
+] as const;
+
+// Trigger processing of the current note
+export async function triggerProcessing(style?: string): Promise<void> {
+  const currentStyle = style ?? get(processingStyle);
+
+  // Set processing state immediately
+  aiOutputStore.setProcessing(true);
+
+  try {
+    await invoke('trigger_processing', { style: currentStyle });
+    // The actual result/error will come via Tauri events (ai:processing-complete / ai:processing-error)
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    aiOutputStore.setError(errorMsg);
+  }
+}
+
 // Initialize Tauri event listeners for AI processing events
 export async function initAIEventListeners(): Promise<UnlistenFn[]> {
   const unlisteners: UnlistenFn[] = [];

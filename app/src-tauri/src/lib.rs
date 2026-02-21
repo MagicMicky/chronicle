@@ -72,6 +72,8 @@ pub fn run() {
             commands::update_app_state,
             commands::get_ws_port,
             commands::get_processing_result,
+            // Processing commands
+            commands::trigger_processing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
