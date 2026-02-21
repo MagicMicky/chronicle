@@ -35,10 +35,9 @@ pub fn run() {
         .manage(WsBroadcastState(ws_broadcast))
         .setup(move |app| {
             // Store app handle in shared state for WebSocket event emission
-            // Use block_on to ensure this completes before the app starts
             let app_handle = app.handle().clone();
             let state_clone = app_state.clone();
-            tokio::runtime::Handle::current().block_on(async move {
+            tauri::async_runtime::spawn(async move {
                 let mut state = state_clone.write().await;
                 state.app_handle = Some(app_handle);
                 tracing::info!("App handle stored in WebSocket app state");
