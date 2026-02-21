@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::sync::RwLock;
 
 use super::AppState;
@@ -84,19 +85,37 @@ async fn handle_push(message: WsMessage, app_state: Arc<RwLock<AppState>>) {
 
     match event {
         "processingComplete" => {
-            // Store the processing result in app state
+            // Store the processing result in app state and emit event to frontend
             let mut state = app_state.write().await;
-            state.last_processing_result = Some(data);
+            state.last_processing_result = Some(data.clone());
+
+            // Emit Tauri event to frontend
+            if let Some(ref handle) = state.app_handle {
+                if let Err(e) = handle.emit("ai:processing-complete", &data) {
+                    tracing::error!("Failed to emit ai:processing-complete event: {}", e);
+                } else {
+                    tracing::info!("Emitted ai:processing-complete event to frontend");
+                }
+            }
             tracing::info!("Processing complete - result stored in app state");
         }
         "processingError" => {
             let mut state = app_state.write().await;
-            state.last_processing_error = Some(
-                data.get("error")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown error")
-                    .to_string(),
-            );
+            let error_msg = data
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string();
+            state.last_processing_error = Some(error_msg.clone());
+
+            // Emit Tauri event to frontend
+            if let Some(ref handle) = state.app_handle {
+                if let Err(e) = handle.emit("ai:processing-error", &json!({ "error": error_msg })) {
+                    tracing::error!("Failed to emit ai:processing-error event: {}", e);
+                } else {
+                    tracing::info!("Emitted ai:processing-error event to frontend");
+                }
+            }
             tracing::warn!("Processing error received");
         }
         _ => {

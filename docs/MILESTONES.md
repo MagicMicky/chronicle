@@ -373,12 +373,12 @@ M6.3 - State management
 
 ### Acceptance Criteria
 
-- [ ] AI Output pane shows structured sections
-- [ ] TL;DR prominent at top
-- [ ] Action items as checklist
-- [ ] Questions as bullet list
-- [ ] Progress indicator during processing
-- [ ] Error display on failure
+- [x] AI Output pane shows structured sections
+- [x] TL;DR prominent at top
+- [x] Action items as checklist
+- [x] Questions as bullet list
+- [x] Progress indicator during processing
+- [x] Error display on failure
 
 ### Dependencies
 

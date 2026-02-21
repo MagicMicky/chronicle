@@ -7,7 +7,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use super::handlers;
 
 /// Shared application state that tracks current file and workspace
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct AppState {
     pub current_file_path: Option<String>,
     pub current_file_content: Option<String>,
@@ -16,6 +16,8 @@ pub struct AppState {
     pub last_processing_result: Option<serde_json::Value>,
     /// Last processing error from MCP server
     pub last_processing_error: Option<String>,
+    /// Tauri app handle for emitting events to frontend
+    pub app_handle: Option<tauri::AppHandle>,
 }
 
 pub type SharedAppState = Arc<RwLock<AppState>>;

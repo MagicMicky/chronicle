@@ -31,8 +31,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_pty::init())
         .manage(commands::TrackerManagerState::new())
-        .manage(app_state)
+        .manage(app_state.clone())
         .manage(WsBroadcastState(ws_broadcast))
+        .setup(move |app| {
+            // Store app handle in shared state for WebSocket event emission
+            let app_handle = app.handle().clone();
+            let state_clone = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut state = state_clone.write().await;
+                state.app_handle = Some(app_handle);
+                tracing::info!("App handle stored in WebSocket app state");
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // Workspace commands
             commands::open_workspace,
@@ -46,6 +57,7 @@ pub fn run() {
             commands::rename_file,
             commands::generate_note_path,
             commands::get_default_shell,
+            commands::read_processed_file,
             // Tracking commands (simplified)
             commands::get_tracker_info,
             commands::start_tracking,

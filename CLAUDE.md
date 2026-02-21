@@ -2,10 +2,39 @@
 
 ## Current Status
 
-- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.1), M5 MCP Server (v0.6.0)
-- **Next**: M6 AI Output (structured display of processing results in UI)
+- **Completed**: M0 Foundation (v0.1.0), M1 Editor (v0.2.2), M2 Storage (v0.3.0), M3 Session (v0.4.2), M4 Terminal (v0.5.1), M5 MCP Server (v0.6.0), M6 AI Output (v0.7.0)
+- **Next**: M7 Integration & Polish (keyboard shortcuts, processing button, edge case handling)
 - **CI**: GitHub Actions builds on tag push (Windows, macOS, Linux)
 - **Latest tag**: v0.6.0
+
+### M6 AI Output - What Was Built
+
+**Approach**: Tauri events for real-time push notifications + file parsing for structured sections.
+
+**Rust Backend** (`app/src-tauri/src/`):
+- `websocket/handlers.rs` - Emit Tauri events (`ai:processing-complete`, `ai:processing-error`) on WebSocket push
+- `websocket/server.rs` - Added `app_handle` to `AppState` for event emission
+- `commands/file.rs` - Added `read_processed_file` command to parse markdown sections
+- `lib.rs` - Setup hook to store `AppHandle` in shared state
+
+**Frontend** (`app/src/lib/`):
+- `stores/aiOutput.ts` - Enhanced with `ParsedSections`, `ActionItem` types, event listeners, `loadSections` method
+- `ai-output/AIOutput.svelte` - Full rewrite with state handling (ready, processing, error, result)
+- `ai-output/Summary.svelte` - TL;DR section component
+- `ai-output/KeyPoints.svelte` - Key points bullet list component
+- `ai-output/ActionList.svelte` - Action items checklist component
+- `ai-output/Questions.svelte` - Open questions list component
+- `routes/+layout.svelte` - Initialize AI event listeners on mount
+
+**Key behaviors**:
+- Tauri events emitted when MCP server pushes processing results
+- Frontend listens to events and updates store immediately
+- Sections parsed from processed markdown file via Tauri command
+- UI shows structured sections: TL;DR, Key Points, Action Items, Questions
+- States: Ready to process, Processing (spinner), Error (with dismiss), Result
+- "View Raw" toggle to show original notes
+- Auto-clear when switching files
+- Metadata footer shows processed time, style, token counts
 
 ### M5 MCP Server - What Was Built
 

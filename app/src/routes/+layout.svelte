@@ -2,9 +2,11 @@
   import '../app.css';
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
+  import { initAIEventListeners } from '$lib/stores/aiOutput';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import StatusBar from '$lib/layout/StatusBar.svelte';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
 
   interface Props {
     children: import('svelte').Snippet;
@@ -13,6 +15,19 @@
   let { children }: Props = $props();
 
   onMount(() => {
+    let aiUnlisteners: UnlistenFn[] = [];
+    let destroyed = false;
+
+    // Initialize AI event listeners
+    initAIEventListeners().then((unlisteners) => {
+      if (destroyed) {
+        // Component unmounted before listeners were ready — clean up immediately
+        unlisteners.forEach((fn) => fn());
+      } else {
+        aiUnlisteners = unlisteners;
+      }
+    });
+
     function handleKeyDown(e: KeyboardEvent) {
       // Cmd/Ctrl + B: Toggle Explorer
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
@@ -39,7 +54,11 @@
     }
 
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      destroyed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      aiUnlisteners.forEach((fn) => fn());
+    };
   });
 </script>
 

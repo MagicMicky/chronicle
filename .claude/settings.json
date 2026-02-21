@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unset *)",
+      "Bash(PATH=*)",
+      "Bash(export *)"
+    ]
+  }
+}
