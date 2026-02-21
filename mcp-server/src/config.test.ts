@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { loadConfig } from "./config";
 
 describe("CONFIG", () => {
   // Save original env values
@@ -27,53 +28,42 @@ describe("CONFIG", () => {
     }
   });
 
-  // Since CONFIG is a module-level const, we need to re-import it each time
-  // to test env var handling. We use dynamic import with cache busting.
-
-  it("returns default values when no env vars are set", async () => {
-    // Clear module cache and reimport
-    delete require.cache[require.resolve("./config")];
-    const { CONFIG } = await import("./config");
-
-    expect(CONFIG.model).toBe("claude-sonnet-4-20250514");
-    expect(CONFIG.maxTokens).toBe(4096);
-    expect(CONFIG.wsPort).toBe(9847);
-    expect(CONFIG.wsTimeout).toBe(30000);
+  it("returns default values when no env vars are set", () => {
+    const config = loadConfig();
+    expect(config.model).toBe("claude-sonnet-4-20250514");
+    expect(config.maxTokens).toBe(4096);
+    expect(config.wsPort).toBe(9847);
+    expect(config.wsTimeout).toBe(30000);
   });
 
-  it("respects CHRONICLE_MODEL env var", async () => {
+  it("respects CHRONICLE_MODEL env var", () => {
     process.env.CHRONICLE_MODEL = "claude-opus-4-20250514";
-    delete require.cache[require.resolve("./config")];
-    const { CONFIG } = await import("./config");
-    expect(CONFIG.model).toBe("claude-opus-4-20250514");
+    const config = loadConfig();
+    expect(config.model).toBe("claude-opus-4-20250514");
   });
 
-  it("respects CHRONICLE_MAX_TOKENS env var", async () => {
+  it("respects CHRONICLE_MAX_TOKENS env var", () => {
     process.env.CHRONICLE_MAX_TOKENS = "8192";
-    delete require.cache[require.resolve("./config")];
-    const { CONFIG } = await import("./config");
-    expect(CONFIG.maxTokens).toBe(8192);
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(8192);
   });
 
-  it("respects CHRONICLE_WS_PORT env var", async () => {
+  it("respects CHRONICLE_WS_PORT env var", () => {
     process.env.CHRONICLE_WS_PORT = "9999";
-    delete require.cache[require.resolve("./config")];
-    const { CONFIG } = await import("./config");
-    expect(CONFIG.wsPort).toBe(9999);
+    const config = loadConfig();
+    expect(config.wsPort).toBe(9999);
   });
 
-  it("respects CHRONICLE_WS_TIMEOUT env var", async () => {
+  it("respects CHRONICLE_WS_TIMEOUT env var", () => {
     process.env.CHRONICLE_WS_TIMEOUT = "60000";
-    delete require.cache[require.resolve("./config")];
-    const { CONFIG } = await import("./config");
-    expect(CONFIG.wsTimeout).toBe(60000);
+    const config = loadConfig();
+    expect(config.wsTimeout).toBe(60000);
   });
 
-  it("falls back to default when numeric env vars are invalid", async () => {
+  it("falls back to default when numeric env vars are invalid", () => {
     process.env.CHRONICLE_MAX_TOKENS = "not-a-number";
-    delete require.cache[require.resolve("./config")];
-    const { CONFIG } = await import("./config");
+    const config = loadConfig();
     // Number("not-a-number") is NaN, || 4096 will kick in
-    expect(CONFIG.maxTokens).toBe(4096);
+    expect(config.maxTokens).toBe(4096);
   });
 });
