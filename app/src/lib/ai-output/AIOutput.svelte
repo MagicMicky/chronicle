@@ -7,6 +7,7 @@
     aiError,
     hasAIResult,
     isLoadingSections,
+    triggerProcessing,
     type AIResult,
   } from '$lib/stores/aiOutput';
   import { currentNote } from '$lib/stores/note';
@@ -15,6 +16,7 @@
   import KeyPoints from './KeyPoints.svelte';
   import ActionList from './ActionList.svelte';
   import Questions from './Questions.svelte';
+  import { Bot, Sparkles, AlertCircle, Minus } from 'lucide-svelte';
 
   let result: AIResult | null = $state(null);
   let processing = $state(false);
@@ -61,6 +63,10 @@
     aiOutputStore.setError('');
   }
 
+  function handleRetry() {
+    triggerProcessing();
+  }
+
   function toggleRaw() {
     showRaw = !showRaw;
   }
@@ -80,12 +86,13 @@
           class:active={showRaw}
           onclick={toggleRaw}
           title="Toggle Raw Notes"
+          aria-label="Toggle Raw Notes"
         >
           Raw
         </button>
       {/if}
-      <button class="collapse-btn" onclick={handleCollapse} title="Collapse AI Output">
-        <span class="icon">&#x2212;</span>
+      <button class="collapse-btn" onclick={handleCollapse} title="Collapse AI Output" aria-label="Collapse AI Output">
+        <Minus size={14} />
       </button>
     </div>
   </div>
@@ -94,15 +101,19 @@
     {#if processing}
       <!-- Processing state -->
       <div class="state-container processing">
+        <span class="processing-icon"><Sparkles size={20} /></span>
         <div class="spinner"></div>
         <span class="state-text">Processing note...</span>
       </div>
     {:else if error}
       <!-- Error state -->
       <div class="state-container error">
-        <span class="error-icon">!</span>
+        <span class="error-icon"><AlertCircle size={32} /></span>
         <span class="error-text">{error}</span>
-        <button class="dismiss-btn" onclick={handleDismissError}>Dismiss</button>
+        <div class="error-actions">
+          <button class="retry-btn" onclick={handleRetry}>Retry</button>
+          <button class="dismiss-btn" onclick={handleDismissError}>Dismiss</button>
+        </div>
       </div>
     {:else if loadingSections}
       <!-- Loading sections state -->
@@ -149,7 +160,7 @@
     {:else}
       <!-- Ready state -->
       <div class="state-container ready">
-        <span class="state-icon">&#129302;</span>
+        <span class="state-icon"><Bot size={32} /></span>
         <span class="state-text">Ready to process</span>
         <span class="state-hint">Press Cmd/Ctrl+Shift+P or click Process in the status bar</span>
       </div>
@@ -294,13 +305,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
-    font-size: 24px;
-    font-weight: bold;
-    background: var(--error-color, #f14c4c);
-    color: #fff;
-    border-radius: 50%;
+    color: var(--error-color, #f14c4c);
+  }
+
+  .processing-icon {
+    color: var(--accent-color, #0078d4);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
   }
 
   .error-text {
@@ -308,6 +323,27 @@
     text-align: center;
     max-width: 80%;
     color: var(--text-primary, #e0e0e0);
+  }
+
+  .error-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .retry-btn {
+    font-size: 12px;
+    padding: 6px 16px;
+    background: var(--accent-color, #0078d4);
+    border: 1px solid var(--accent-color, #0078d4);
+    color: #fff;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+
+  .retry-btn:hover {
+    background: var(--accent-hover, #1a8ae8);
+    border-color: var(--accent-hover, #1a8ae8);
   }
 
   .dismiss-btn {

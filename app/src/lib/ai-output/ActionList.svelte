@@ -5,19 +5,29 @@
     actions: ActionItem[];
   }
 
-  let { actions }: Props = $props();
+  let { actions = $bindable() }: Props = $props();
+
+  function toggleAction(index: number) {
+    actions[index].completed = !actions[index].completed;
+    actions = actions; // trigger reactivity
+  }
+
+  let completedCount = $derived(actions.filter((a) => a.completed).length);
 </script>
 
 {#if actions.length > 0}
   <section class="ai-section actions">
-    <h3 class="section-title">Action Items</h3>
+    <div class="action-header">
+      <h3 class="section-title">Action Items</h3>
+      <span class="action-count">{completedCount}/{actions.length}</span>
+    </div>
     <ul class="action-list">
-      {#each actions as action}
+      {#each actions as action, i}
         <li class="action-item" class:completed={action.completed}>
           <input
             type="checkbox"
             checked={action.completed}
-            disabled
+            onchange={() => toggleAction(i)}
             class="action-checkbox"
           />
           <span class="action-text">{action.text}</span>
@@ -31,6 +41,22 @@
 {/if}
 
 <style>
+  .action-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .action-header .section-title {
+    margin-bottom: 0;
+  }
+
+  .action-count {
+    font-size: 11px;
+    color: var(--text-muted, #888);
+  }
+
   .action-list {
     margin: 0;
     padding: 0;
@@ -53,17 +79,18 @@
 
   .action-item.completed .action-text {
     text-decoration: line-through;
-    color: var(--text-muted, #888);
+    opacity: 0.6;
   }
 
   .action-checkbox {
     margin-top: 3px;
-    cursor: not-allowed;
+    cursor: pointer;
     accent-color: var(--accent-color, #0078d4);
   }
 
   .action-text {
     flex: 1;
+    transition: opacity 0.15s;
   }
 
   .action-owner {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { saveStatus, type SaveStatus } from '$lib/stores/autosave';
-  import { noteTitle, isNoteDirty, hasOpenNote } from '$lib/stores/note';
+  import { noteTitle, isNoteDirty, hasOpenNote, noteContent, currentNote } from '$lib/stores/note';
   import { hasWorkspace, currentWorkspace } from '$lib/stores/workspace';
   import { sessionDuration, formatDuration, isTracking } from '$lib/stores/session';
   import {
@@ -9,6 +9,21 @@
     triggerProcessing,
     PROCESSING_STYLES,
   } from '$lib/stores/aiOutput';
+  import { fileStatuses } from '$lib/stores/fileStatus';
+  import { Sun, Moon } from 'lucide-svelte';
+
+  let theme = 'dark';
+
+  // Initialize theme from DOM on component creation
+  if (typeof document !== 'undefined') {
+    theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  }
+
+  function toggleTheme() {
+    theme = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('chronicle-theme', theme);
+  }
 
   // Use $ prefix to subscribe to stores reactively
   $: status = $saveStatus;
@@ -21,12 +36,23 @@
   $: tracking = $isTracking;
   $: processing = $isAIProcessing;
   $: selectedStyle = $processingStyle;
+  $: content = $noteContent;
+  $: note = $currentNote;
+  $: statuses = $fileStatuses;
 
   // Reactive status text
   $: statusText = getStatusText(status, dirty, noteOpen);
 
   // Duration display text
   $: durationDisplay = tracking && duration > 0 ? `(${formatDuration(duration)})` : '';
+
+  // Word count for current note
+  $: wordCount = noteOpen && content
+    ? content.trim().split(/\s+/).filter((w: string) => w.length > 0).length
+    : 0;
+
+  // Git status for current file
+  $: gitStatus = note?.path ? statuses.getStatus(note.path) : 'clean';
 
   function getStatusText(s: SaveStatus, isDirty: boolean, hasNote: boolean): string {
     if (s === 'saving') return 'Saving...';
@@ -51,9 +77,18 @@
   <div class="status-left">
     <span class="status-item">
       {#if noteOpen}
+        <span
+          class="git-dot"
+          class:committed={gitStatus === 'clean'}
+          class:uncommitted={gitStatus === 'uncommitted' || gitStatus === 'unsaved'}
+          title="Git: {gitStatus}"
+        ></span>
         {title}
         {#if durationDisplay}
           <span class="duration-info">{durationDisplay}</span>
+        {/if}
+        {#if wordCount > 0}
+          <span class="word-count">{wordCount} words</span>
         {/if}
       {:else if workspaceOpen}
         {workspaceName}
@@ -76,6 +111,7 @@
           on:change={handleStyleChange}
           disabled={processing}
           title="Processing style"
+          aria-label="Processing style"
         >
           {#each PROCESSING_STYLES as style}
             <option value={style.value}>{style.label}</option>
@@ -86,6 +122,7 @@
           on:click={handleProcess}
           disabled={processing || !noteOpen}
           title="Process note (Cmd/Ctrl+Shift+P)"
+          aria-label="Process note"
         >
           {#if processing}
             <span class="process-spinner"></span>
@@ -96,6 +133,18 @@
         </button>
       </div>
     {/if}
+    <button
+      class="theme-toggle"
+      on:click={toggleTheme}
+      title="Toggle theme"
+      aria-label="Toggle light/dark theme"
+    >
+      {#if theme === 'dark'}
+        <Sun size={12} />
+      {:else}
+        <Moon size={12} />
+      {/if}
+    </button>
     <span class="status-item">v0.4.1</span>
   </div>
 </div>
@@ -170,6 +219,28 @@
     color: var(--warning-color, #cca700);
   }
 
+  .git-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .git-dot.committed {
+    background-color: #4caf50;
+  }
+
+  .git-dot.uncommitted {
+    background-color: #cca700;
+  }
+
+  .word-count {
+    margin-left: 8px;
+    opacity: 0.7;
+    font-size: 11px;
+  }
+
   .duration-info {
     margin-left: 8px;
     opacity: 0.7;
@@ -241,5 +312,23 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #888);
+    cursor: pointer;
+    border-radius: 3px;
+    transition: color 0.15s;
+  }
+
+  .theme-toggle:hover {
+    color: var(--text-primary, #e0e0e0);
   }
 </style>

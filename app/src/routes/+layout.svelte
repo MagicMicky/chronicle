@@ -7,6 +7,7 @@
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import StatusBar from '$lib/layout/StatusBar.svelte';
+  import ShortcutGuide from '$lib/components/ShortcutGuide.svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
 
   interface Props {
@@ -14,10 +15,28 @@
   }
 
   let { children }: Props = $props();
+  let showShortcuts = $state(false);
 
   onMount(() => {
     let aiUnlisteners: UnlistenFn[] = [];
     let destroyed = false;
+
+    // Theme initialization: check saved preference, then system preference
+    const savedTheme = localStorage.getItem('chronicle-theme');
+    if (savedTheme) {
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+
+    // Listen for system theme changes when no explicit preference is saved
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    function handleSystemThemeChange(e: MediaQueryListEvent) {
+      if (!localStorage.getItem('chronicle-theme')) {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      }
+    }
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
 
     // Initialize AI event listeners
     initAIEventListeners().then((unlisteners) => {
@@ -47,6 +66,11 @@
           triggerProcessing();
         }
       }
+      // Cmd/Ctrl + /: Toggle shortcut guide
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault();
+        showShortcuts = !showShortcuts;
+      }
       // Cmd/Ctrl + `: Focus Terminal (expand if collapsed)
       if ((e.metaKey || e.ctrlKey) && e.key === '`') {
         e.preventDefault();
@@ -65,6 +89,7 @@
     return () => {
       destroyed = true;
       document.removeEventListener('keydown', handleKeyDown);
+      mediaQuery.removeEventListener('change', handleSystemThemeChange);
       aiUnlisteners.forEach((fn) => fn());
     };
   });
@@ -76,6 +101,8 @@
   </div>
   <StatusBar />
 </div>
+
+<ShortcutGuide bind:show={showShortcuts} />
 
 <style>
   .app-container {
