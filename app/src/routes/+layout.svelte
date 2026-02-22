@@ -316,7 +316,7 @@
             await autoSaveStore.saveNow();
             await sessionStore.stopTracking();
             const w = await getTauriWindow();
-            await w?.close();
+            await w?.destroy();
           } catch {
             const { confirm } = await import('@tauri-apps/plugin-dialog');
             const shouldClose = await confirm(

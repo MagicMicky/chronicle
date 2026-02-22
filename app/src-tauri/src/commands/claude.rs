@@ -71,8 +71,17 @@ async fn run_claude_streaming(
         args.push(turns.to_string());
     }
 
-    let mut child = Command::new("claude")
-        .args(&args)
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = Command::new("cmd");
+        c.arg("/c").arg("claude").args(&args);
+        c
+    } else {
+        let mut c = Command::new("claude");
+        c.args(&args);
+        c
+    };
+
+    let mut child = cmd
         .current_dir(workspace_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -318,7 +327,14 @@ pub async fn run_background_agents(
 /// Tauri command: check if Claude Code CLI is installed.
 #[tauri::command]
 pub async fn check_claude_installed() -> Result<bool, String> {
-    let output = Command::new("claude").args(["--version"]).output().await;
+    let output = if cfg!(target_os = "windows") {
+        Command::new("cmd")
+            .args(["/c", "claude", "--version"])
+            .output()
+            .await
+    } else {
+        Command::new("claude").args(["--version"]).output().await
+    };
 
     match output {
         Ok(o) => Ok(o.status.success()),
