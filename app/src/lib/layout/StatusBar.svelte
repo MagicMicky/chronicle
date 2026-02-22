@@ -8,6 +8,7 @@
     aiOutputStore,
     isMcpConnected,
   } from '$lib/stores/aiOutput';
+  import { claudeInstalled } from '$lib/stores/claudeStatus';
   import { invoke } from '@tauri-apps/api/core';
   import { fileStatuses } from '$lib/stores/fileStatus';
   import { isAgentsRunning, lastAgentRun } from '$lib/stores/agentStatus';
@@ -42,6 +43,7 @@
   $: saved = $lastSaved;
   $: error = $saveError;
   $: mcpConnected = $isMcpConnected;
+  $: claude = $claudeInstalled;
   $: agentsRunning = $isAgentsRunning;
   $: lastAgentsRun = $lastAgentRun;
 
@@ -173,8 +175,8 @@
         <button
           class="process-btn"
           on:click={handleProcess}
-          disabled={processing || !noteOpen}
-          title="Process note (Cmd/Ctrl+Enter)"
+          disabled={processing || !noteOpen || !claude}
+          title={claude ? 'Process note (Cmd/Ctrl+Enter)' : 'Install Claude Code for AI features'}
           aria-label="Process note"
         >
           {#if processing}
@@ -195,6 +197,15 @@
       <span class="agent-status idle" title="Last organized: {formatRelativeTime(lastAgentsRun)}">
         <Brain size={11} />
         {formatRelativeTime(lastAgentsRun)}
+      </span>
+    {/if}
+    {#if !claude}
+      <span
+        class="claude-warning"
+        title="Claude Code not installed — AI features unavailable"
+        aria-label="Claude Code not installed"
+      >
+        <AlertTriangle size={12} />
       </span>
     {/if}
     <span
@@ -376,6 +387,13 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .claude-warning {
+    display: flex;
+    align-items: center;
+    color: var(--warning-color, #cca700);
+    cursor: help;
   }
 
   .mcp-status {

@@ -7,10 +7,13 @@
   import AIOutput from '$lib/ai-output/AIOutput.svelte';
   import Terminal from '$lib/terminal/Terminal.svelte';
   import { ChevronUp, Sparkles } from 'lucide-svelte';
+  import { onMount } from 'svelte';
 
   let ui = $state($uiStore);
   let prefersReducedMotion = $state(false);
   let aiHasResult = $state(false);
+  let showFocusHint = $state(false);
+  let focusHintTimer: ReturnType<typeof setTimeout> | null = null;
 
   $effect(() => {
     const unsubscribe = uiStore.subscribe((value) => {
@@ -24,6 +27,20 @@
       aiHasResult = value;
     });
     return unsubscribe;
+  });
+
+  // Show hint when entering focus mode, fade after 3 seconds
+  $effect(() => {
+    if (ui.focusMode) {
+      showFocusHint = true;
+      if (focusHintTimer) clearTimeout(focusHintTimer);
+      focusHintTimer = setTimeout(() => {
+        showFocusHint = false;
+      }, 3000);
+    } else {
+      showFocusHint = false;
+      if (focusHintTimer) clearTimeout(focusHintTimer);
+    }
   });
 
   $effect(() => {
@@ -49,21 +66,23 @@
   }
 </script>
 
-<div class="panes-container">
-  <!-- Explorer (left sidebar) -->
-  {#if !ui.collapsed.explorer}
-    <div class="pane explorer-pane" style="width: {ui.explorerWidth}px;">
-      <Explorer />
-    </div>
-    <PaneHandle direction="vertical" onDrag={handleExplorerResize} />
-  {:else}
-    <button
-      class="collapsed-pane-btn vertical"
-      onclick={() => uiStore.toggleCollapse('explorer')}
-      title="Expand Explorer"
-    >
-      <span class="collapsed-label">Explorer</span>
-    </button>
+<div class="panes-container" class:focus-mode={ui.focusMode} class:no-motion={prefersReducedMotion}>
+  {#if !ui.focusMode}
+    <!-- Explorer (left sidebar) -->
+    {#if !ui.collapsed.explorer}
+      <div class="pane explorer-pane" style="width: {ui.explorerWidth}px;">
+        <Explorer />
+      </div>
+      <PaneHandle direction="vertical" onDrag={handleExplorerResize} />
+    {:else}
+      <button
+        class="collapsed-pane-btn vertical"
+        onclick={() => uiStore.toggleCollapse('explorer')}
+        title="Expand Explorer"
+      >
+        <span class="collapsed-label">Explorer</span>
+      </button>
+    {/if}
   {/if}
 
   <!-- Center section (Editor + Terminal) -->
@@ -74,51 +93,62 @@
         <Editor />
       </div>
 
-      <!-- Terminal drawer (always mounted to keep PTY alive) -->
-      {#if ui.collapsed.terminal}
-        <button
-          class="terminal-bar"
-          onclick={() => uiStore.toggleCollapse('terminal')}
-          title="Expand Terminal (Cmd+`)"
+      {#if !ui.focusMode}
+        <!-- Terminal drawer (always mounted to keep PTY alive) -->
+        {#if ui.collapsed.terminal}
+          <button
+            class="terminal-bar"
+            onclick={() => uiStore.toggleCollapse('terminal')}
+            title="Expand Terminal (Cmd+`)"
+          >
+            <span class="terminal-bar-label">Terminal</span>
+            <ChevronUp size={14} />
+          </button>
+        {:else}
+          <PaneHandle direction="horizontal" onDrag={handleTerminalResize} />
+        {/if}
+        <div
+          class="pane terminal-pane"
+          class:no-motion={prefersReducedMotion}
+          class:terminal-collapsed={ui.collapsed.terminal}
+          style="height: {ui.collapsed.terminal ? 0 : ui.terminalHeight}px;"
         >
-          <span class="terminal-bar-label">Terminal</span>
-          <ChevronUp size={14} />
-        </button>
-      {:else}
-        <PaneHandle direction="horizontal" onDrag={handleTerminalResize} />
+          <Terminal />
+        </div>
       {/if}
-      <div
-        class="pane terminal-pane"
-        class:no-motion={prefersReducedMotion}
-        class:terminal-collapsed={ui.collapsed.terminal}
-        style="height: {ui.collapsed.terminal ? 0 : ui.terminalHeight}px;"
-      >
-        <Terminal />
-      </div>
     </div>
   </div>
 
-  <!-- AI Output (right sidebar) -->
-  {#if !ui.collapsed.aiOutput}
-    <PaneHandle direction="vertical" onDrag={handleAIOutputResize} />
-    <div
-      class="pane ai-output-pane"
-      class:no-motion={prefersReducedMotion}
-      style="width: {ui.aiOutputWidth}px;"
-    >
-      <AIOutput />
+  {#if !ui.focusMode}
+    <!-- AI Output (right sidebar) -->
+    {#if !ui.collapsed.aiOutput}
+      <PaneHandle direction="vertical" onDrag={handleAIOutputResize} />
+      <div
+        class="pane ai-output-pane"
+        class:no-motion={prefersReducedMotion}
+        style="width: {ui.aiOutputWidth}px;"
+      >
+        <AIOutput />
+      </div>
+    {:else}
+      <button
+        class="collapsed-pane-btn vertical right"
+        onclick={() => { setAIPanelManualOverride(); uiStore.toggleCollapse('aiOutput'); }}
+        title={aiHasResult ? 'AI Output (has results - click to expand)' : 'Expand AI Output'}
+      >
+        {#if aiHasResult}
+          <span class="ai-indicator"><Sparkles size={12} /></span>
+        {/if}
+        <span class="collapsed-label">AI Output</span>
+      </button>
+    {/if}
+  {/if}
+
+  <!-- Focus mode hint -->
+  {#if ui.focusMode && showFocusHint}
+    <div class="focus-hint" class:no-motion={prefersReducedMotion}>
+      ESC to exit focus mode
     </div>
-  {:else}
-    <button
-      class="collapsed-pane-btn vertical right"
-      onclick={() => { setAIPanelManualOverride(); uiStore.toggleCollapse('aiOutput'); }}
-      title={aiHasResult ? 'AI Output (has results - click to expand)' : 'Expand AI Output'}
-    >
-      {#if aiHasResult}
-        <span class="ai-indicator"><Sparkles size={12} /></span>
-      {/if}
-      <span class="collapsed-label">AI Output</span>
-    </button>
   {/if}
 </div>
 
@@ -279,5 +309,38 @@
     letter-spacing: 0.5px;
     color: var(--text-muted, #888);
     padding: 8px;
+  }
+
+  /* Focus mode */
+  .panes-container.focus-mode .center-pane {
+    min-width: 0;
+  }
+
+  .focus-hint {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 16px;
+    background: var(--bg-secondary, #252525);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted, #888);
+    pointer-events: none;
+    z-index: 100;
+    animation: focus-hint-fade 3s ease-in-out forwards;
+  }
+
+  .focus-hint.no-motion {
+    animation: none;
+    opacity: 0.7;
+  }
+
+  @keyframes focus-hint-fade {
+    0% { opacity: 0; }
+    10% { opacity: 0.8; }
+    70% { opacity: 0.8; }
+    100% { opacity: 0; }
   }
 </style>

@@ -1,11 +1,13 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 use tauri::State;
 
 use crate::watcher::ChronicleWatcher;
+use crate::SharedAppState;
 
 /// Directory names inside .chronicle/
-const SUBDIRS: &[&str] = &["prompts", "processed", "digests"];
+const SUBDIRS: &[&str] = &["prompts", "processed", "digests", "templates"];
 
 /// JSON index files with their default contents
 const INDEX_FILES: &[(&str, &str)] = &[
@@ -103,6 +105,66 @@ Write updated .chronicle/actions.json:
 Update .chronicle/agent-runs.json with: {"actions": "ISO timestamp"}
 "#;
 
+/// Default template files
+const DEFAULT_TEMPLATES: &[(&str, &str)] = &[
+    (
+        "blank.md",
+        "# {{title}}\n\n",
+    ),
+    (
+        "meeting.md",
+        "# Meeting: [Topic]\n\n**Date:** {{date}}\n**Attendees:** \n\n## Notes\n\n## Action Items\n\n## Decisions\n",
+    ),
+    (
+        "one-on-one.md",
+        "# 1:1 with [Name]\n\n**Date:** {{date}}\n\n## Updates\n\n## Discussion\n\n## Action Items\n\n## Feedback\n",
+    ),
+    (
+        "standup.md",
+        "# Standup — {{date}}\n\n## Yesterday\n\n## Today\n\n## Blockers\n",
+    ),
+];
+
+/// Template info returned to frontend
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateInfo {
+    pub name: String,
+    pub filename: String,
+    pub content: String,
+    pub description: String,
+}
+
+/// Derive a human-readable name and description from a template filename
+fn template_meta(filename: &str) -> (String, String) {
+    let base = filename.trim_end_matches(".md");
+    match base {
+        "blank" => ("Blank Note".into(), "Start with an empty note".into()),
+        "meeting" => ("Meeting".into(), "Agenda, notes, and action items".into()),
+        "one-on-one" => ("1:1".into(), "Updates, discussion, and feedback".into()),
+        "standup" => ("Standup".into(), "Yesterday, today, and blockers".into()),
+        other => {
+            let name = other
+                .replace('-', " ")
+                .replace('_', " ");
+            // Capitalize first letter of each word
+            let name = name
+                .split_whitespace()
+                .map(|w| {
+                    let mut c = w.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let desc = format!("{} template", name);
+            (name, desc)
+        }
+    }
+}
+
 /// Initialize the .chronicle/ directory structure in a workspace.
 /// Creates subdirectories, default JSON index files, and prompt files.
 /// Does not overwrite existing files.
@@ -133,6 +195,15 @@ pub fn init_chronicle_dir(workspace_path: &Path) -> Result<(), String> {
     ];
     for (filename, content) in prompts {
         let file_path = chronicle_dir.join("prompts").join(filename);
+        if !file_path.exists() {
+            std::fs::write(&file_path, content)
+                .map_err(|e| format!("Failed to write {}: {}", file_path.display(), e))?;
+        }
+    }
+
+    // Create default template files (don't overwrite)
+    for (filename, content) in DEFAULT_TEMPLATES {
+        let file_path = chronicle_dir.join("templates").join(filename);
         if !file_path.exists() {
             std::fs::write(&file_path, content)
                 .map_err(|e| format!("Failed to write {}: {}", file_path.display(), e))?;
@@ -219,4 +290,113 @@ fn read_chronicle_file(workspace_path: &str, filename: &str) -> Result<Value, St
 
     serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+}
+
+/// List available templates from .chronicle/templates/
+#[tauri::command]
+pub async fn list_templates(
+    state: State<'_, SharedAppState>,
+) -> Result<Vec<TemplateInfo>, String> {
+    let app_state = state.read().await;
+    let workspace_path = app_state
+        .workspace_path
+        .as_ref()
+        .ok_or_else(|| "No workspace open".to_string())?;
+
+    let templates_dir = Path::new(workspace_path)
+        .join(".chronicle")
+        .join("templates");
+
+    if !templates_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut templates = Vec::new();
+    let entries = std::fs::read_dir(&templates_dir)
+        .map_err(|e| format!("Failed to read templates dir: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read template {}: {}", filename, e))?;
+
+        let (name, description) = template_meta(&filename);
+
+        templates.push(TemplateInfo {
+            name,
+            filename,
+            content,
+            description,
+        });
+    }
+
+    // Sort: "Blank Note" first, then alphabetical
+    templates.sort_by(|a, b| {
+        if a.filename == "blank.md" {
+            std::cmp::Ordering::Less
+        } else if b.filename == "blank.md" {
+            std::cmp::Ordering::Greater
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
+
+    Ok(templates)
+}
+
+/// Replace template placeholders with actual values
+fn replace_placeholders(content: &str) -> String {
+    let now = chrono::Local::now();
+    let date_str = now.format("%B %d, %Y").to_string();
+    content
+        .replace("{{date}}", &date_str)
+        .replace("{{title}}", "New Note")
+}
+
+/// Create a new note from a template
+#[tauri::command]
+pub async fn create_from_template(
+    template_filename: String,
+    folder_path: Option<String>,
+    state: State<'_, SharedAppState>,
+) -> Result<(String, String), String> {
+    let app_state = state.read().await;
+    let workspace_path = app_state
+        .workspace_path
+        .as_ref()
+        .ok_or_else(|| "No workspace open".to_string())?
+        .clone();
+    drop(app_state);
+
+    let template_path = Path::new(&workspace_path)
+        .join(".chronicle")
+        .join("templates")
+        .join(&template_filename);
+
+    let raw_content = std::fs::read_to_string(&template_path)
+        .map_err(|e| format!("Failed to read template: {}", e))?;
+
+    let content = replace_placeholders(&raw_content);
+
+    // Generate a unique path in the target folder (or workspace root)
+    let target_dir = folder_path.unwrap_or_else(|| workspace_path.clone());
+    let note_path =
+        crate::storage::generate_unique_path(Path::new(&target_dir), &content);
+
+    // Write the new note
+    crate::storage::write_file_atomic(&note_path, &content)
+        .map_err(|e| format!("Failed to write note: {}", e))?;
+
+    let path_str = note_path.display().to_string();
+    Ok((path_str, content))
 }

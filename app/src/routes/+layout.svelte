@@ -3,6 +3,7 @@
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
   import { checkClaudeAvailability, aiOutputStore, setAIPanelManualOverride } from '$lib/stores/aiOutput';
+  import { checkClaudeInstalled } from '$lib/stores/claudeStatus';
   import { tagsStore, initTagsListener } from '$lib/stores/tags';
   import { actionsStore, initActionsListener } from '$lib/stores/actions';
   import { linksStore, initLinksListener } from '$lib/stores/links';
@@ -21,6 +22,7 @@
   import ShortcutGuide from '$lib/components/ShortcutGuide.svelte';
   import QuickOpen from '$lib/components/QuickOpen.svelte';
   import SearchModal from '$lib/components/SearchModal.svelte';
+  import Onboarding from '$lib/components/Onboarding.svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -49,6 +51,12 @@
   let showShortcuts = $state(false);
   let showQuickOpen = $state(false);
   let showSearch = $state(false);
+  let showOnboarding = $state(false);
+
+  // Check onboarding on mount (set in onMount below)
+  if (typeof localStorage !== 'undefined') {
+    showOnboarding = !localStorage.getItem('chronicle:onboarded');
+  }
 
   async function restoreLastSession() {
     const session = loadLastSession();
@@ -95,6 +103,7 @@
 
     // Check Claude CLI availability
     checkClaudeAvailability();
+    checkClaudeInstalled();
 
     // Initialize chronicle intelligence listeners (tags, actions, links, agents)
     const intelligenceCleanups: (() => void)[] = [];
@@ -349,11 +358,11 @@
           processCurrentNote();
         }
       }
-      // Cmd/Ctrl + N: New note
+      // Cmd/Ctrl + N: New note (show template selector)
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') {
         e.preventDefault();
         if (get(hasWorkspace)) {
-          noteStore.newNote();
+          window.dispatchEvent(new CustomEvent('chronicle:new-note'));
         } else {
           toast.warning('Open a workspace first');
         }
@@ -374,6 +383,27 @@
         e.preventDefault();
         if (get(hasWorkspace)) {
           showSearch = !showSearch;
+        }
+      }
+      // Cmd/Ctrl + Shift + F11: Toggle Focus Mode
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'F11') {
+        e.preventDefault();
+        uiStore.toggleFocusMode();
+      }
+      // Escape: Exit focus mode (only when focus mode is active and no modals are open)
+      if (e.key === 'Escape' && get(uiStore).focusMode && !showShortcuts && !showQuickOpen && !showSearch && !showOnboarding) {
+        e.preventDefault();
+        uiStore.setFocusMode(false);
+      }
+      // Cmd/Ctrl + Shift + C: Copy raw note to clipboard
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'C') {
+        e.preventDefault();
+        const note = get(currentNote);
+        if (note?.content) {
+          navigator.clipboard.writeText(note.content).then(
+            () => toast.success('Note copied to clipboard', 2000),
+            () => toast.error('Failed to copy note')
+          );
         }
       }
       // Cmd/Ctrl + /: Toggle shortcut guide
@@ -411,16 +441,19 @@
   });
 </script>
 
-<div class="app-container">
+<div class="app-container" class:focus-mode={$uiStore.focusMode}>
   <div class="app-content">
     {@render children()}
   </div>
-  <StatusBar />
+  {#if !$uiStore.focusMode}
+    <StatusBar />
+  {/if}
 </div>
 
 <ShortcutGuide bind:show={showShortcuts} />
 <QuickOpen bind:show={showQuickOpen} />
 <SearchModal bind:show={showSearch} />
+<Onboarding bind:show={showOnboarding} />
 <Toasts />
 
 <style>

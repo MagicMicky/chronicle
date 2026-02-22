@@ -22,7 +22,8 @@
   import FileTree from './FileTree.svelte';
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import type { MenuItem } from '$lib/components/ContextMenu.svelte';
-  import { FolderOpen, Plus, Minus, CalendarDays, ChevronRight, ChevronDown, FileText, Tag, CircleAlert, CircleCheck, Clock } from 'lucide-svelte';
+  import TemplateSelector from '$lib/components/TemplateSelector.svelte';
+  import { FolderOpen, Plus, Minus, CalendarDays, ChevronRight, ChevronDown, FileText, Tag, CircleAlert, CircleCheck, Clock, Copy } from 'lucide-svelte';
   import { tagsStore, tagsList, selectedTag, tagFilteredPaths } from '$lib/stores/tags';
   import { actionsStore, actionCounts, actionsByNote } from '$lib/stores/actions';
 
@@ -45,6 +46,12 @@
 
   // Inline rename state
   let renamingPath: string | null = null;
+
+  // Template selector state
+  let templateSelectorVisible = false;
+  let templateSelectorX = 0;
+  let templateSelectorY = 0;
+  let newNoteBtn: HTMLButtonElement;
 
   let recentExpanded = true;
   let tagsExpanded = false;
@@ -124,9 +131,17 @@
         handleFileClick(detail.path);
       }
     }
+
+    // Listen for new-note event from keyboard shortcut (Cmd+N)
+    function handleNewNoteEvent() {
+      handleNewNote();
+    }
+
     window.addEventListener('chronicle:open-file', handleOpenFile);
+    window.addEventListener('chronicle:new-note', handleNewNoteEvent);
     return () => {
       window.removeEventListener('chronicle:open-file', handleOpenFile);
+      window.removeEventListener('chronicle:new-note', handleNewNoteEvent);
     };
   });
 
@@ -183,7 +198,48 @@
   }
 
   function handleNewNote() {
-    noteStore.newNote();
+    if (newNoteBtn) {
+      const rect = newNoteBtn.getBoundingClientRect();
+      templateSelectorX = rect.left;
+      templateSelectorY = rect.bottom + 4;
+    } else {
+      templateSelectorX = 60;
+      templateSelectorY = 40;
+    }
+    templateSelectorVisible = true;
+  }
+
+  function closeTemplateSelector() {
+    templateSelectorVisible = false;
+  }
+
+  async function handleTemplateSelect(e: CustomEvent<{ filename: string; path: string; content: string }>) {
+    const { path, content } = e.detail;
+    templateSelectorVisible = false;
+
+    try {
+      if (isDirty) {
+        await autoSaveStore.saveNow();
+      }
+      await sessionStore.stopTracking();
+
+      noteStore.openNote(path, content);
+      recentFilesStore.add(path);
+
+      if (wsPath) {
+        saveLastSession(wsPath, path);
+      }
+
+      await workspaceStore.refreshFiles();
+      await sessionStore.startTracking(path);
+      await fileStatusStore.refresh();
+
+      // Start rename for the new file
+      renamingPath = path;
+    } catch (e) {
+      console.error('Failed to open template note:', e);
+      toast.error('Failed to create note');
+    }
   }
 
   async function handleOpenDailyNote() {
@@ -375,6 +431,27 @@
       toast.error('Failed to copy path');
     }
   }
+
+  async function copyActions(e: Event) {
+    e.stopPropagation();
+    const lines: string[] = [];
+    for (const [source, items] of actionsBySource.entries()) {
+      for (const item of items) {
+        const suffix = source ? ` (from: ${source})` : '';
+        lines.push(`- [ ] ${item.text}${suffix}`);
+      }
+    }
+    if (lines.length === 0) {
+      toast.info('No open actions to copy');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast.success('Actions copied!', 2000);
+    } catch {
+      toast.error('Failed to copy actions');
+    }
+  }
 </script>
 
 <div class="explorer">
@@ -390,6 +467,7 @@
       {#if isOpen}
         <button
           class="action-btn"
+          bind:this={newNoteBtn}
           on:click={handleNewNote}
           title="New Note (Cmd+N)"
           aria-label="New Note"
@@ -509,6 +587,17 @@
                 <span class="stale-badge">{counts.stale}</span>
               {/if}
             </span>
+            <span
+              class="section-copy-btn"
+              role="button"
+              tabindex="0"
+              on:click={copyActions}
+              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyActions(e); } }}
+              title="Copy all open actions"
+              aria-label="Copy Actions"
+            >
+              <Copy size={11} />
+            </span>
           {/if}
         </button>
         {#if actionsExpanded}
@@ -624,6 +713,14 @@
   onClose={closeContextMenu}
 />
 
+<TemplateSelector
+  visible={templateSelectorVisible}
+  anchorX={templateSelectorX}
+  anchorY={templateSelectorY}
+  on:select={handleTemplateSelect}
+  on:close={closeTemplateSelector}
+/>
+
 <style>
   .explorer {
     display: flex;
@@ -736,6 +833,31 @@
     font-size: 11px;
     color: var(--text-muted, #666);
     margin-left: 2px;
+  }
+
+  .section-copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #666);
+    cursor: pointer;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .section-header:hover .section-copy-btn {
+    opacity: 1;
+  }
+
+  .section-copy-btn:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-primary, #fff);
   }
 
   /* Recent files items */

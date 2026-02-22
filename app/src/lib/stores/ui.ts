@@ -4,6 +4,7 @@ export interface PaneState {
   explorerWidth: number;
   aiOutputWidth: number;
   terminalHeight: number;
+  focusMode: boolean;
   collapsed: {
     explorer: boolean;
     aiOutput: boolean;
@@ -17,6 +18,7 @@ const defaultState: PaneState = {
   explorerWidth: 250,
   aiOutputWidth: 350,
   terminalHeight: 300, // ~18 rows at 13px font - comfortable for interactive use
+  focusMode: false,
   collapsed: {
     explorer: false,
     aiOutput: true,
@@ -33,6 +35,7 @@ function loadState(): PaneState {
         explorerWidth: parsed.explorerWidth ?? defaultState.explorerWidth,
         aiOutputWidth: parsed.aiOutputWidth ?? defaultState.aiOutputWidth,
         terminalHeight: parsed.terminalHeight ?? defaultState.terminalHeight,
+        focusMode: parsed.focusMode ?? defaultState.focusMode,
         collapsed: {
           explorer: parsed.collapsed?.explorer ?? defaultState.collapsed.explorer,
           aiOutput: parsed.collapsed?.aiOutput ?? defaultState.collapsed.aiOutput,
@@ -89,6 +92,10 @@ function createUIStore() {
         ...state,
         collapsed: { ...state.collapsed, [pane]: collapsed },
       })),
+    toggleFocusMode: () =>
+      updateAndPersist((state) => ({ ...state, focusMode: !state.focusMode })),
+    setFocusMode: (enabled: boolean) =>
+      updateAndPersist((state) => ({ ...state, focusMode: enabled })),
     reset: () => {
       set(defaultState);
       persistState(defaultState);

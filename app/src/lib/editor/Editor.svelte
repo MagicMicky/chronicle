@@ -194,11 +194,9 @@
     }
   });
 
-  // Handle new note creation
-  async function handleNewNote() {
-    noteStore.newNote();
-    // Start session tracking for the new note
-    await sessionStore.startTracking('new-note');
+  // Handle new note creation — dispatch event so template selector opens
+  function handleNewNote() {
+    window.dispatchEvent(new CustomEvent('chronicle:new-note'));
   }
 
   // Focus the editor

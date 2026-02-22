@@ -38,6 +38,7 @@
         { keys: 'Cmd+B / Cmd+\\', action: 'Toggle Sidebar' },
         { keys: 'Cmd+J / Cmd+Shift+A', action: 'Toggle AI Panel' },
         { keys: 'Cmd+`', action: 'Toggle Terminal' },
+        { keys: 'Cmd+Shift+F11', action: 'Focus Mode' },
       ],
     },
     {

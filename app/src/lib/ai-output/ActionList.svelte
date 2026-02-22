@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { ActionItem } from '$lib/stores/aiOutput';
+  import { Copy } from 'lucide-svelte';
+  import { toast } from '$lib/stores/toast';
 
   interface Props {
     actions: ActionItem[];
@@ -13,6 +15,19 @@
   }
 
   let completedCount = $derived(actions.filter((a) => a.completed).length);
+
+  async function copySection() {
+    if (actions.length === 0) return;
+    const text = actions
+      .map((a) => `- [${a.completed ? 'x' : ' '}] ${a.text}${a.owner ? ` (@${a.owner})` : ''}`)
+      .join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Copied!', 2000);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  }
 </script>
 
 {#if actions.length > 0}
@@ -20,6 +35,9 @@
     <div class="action-header">
       <h3 class="section-title">Action Items</h3>
       <span class="action-count">{completedCount}/{actions.length}</span>
+      <button class="copy-btn" onclick={copySection} title="Copy Action Items" aria-label="Copy Action Items">
+        <Copy size={12} />
+      </button>
     </div>
     <ul class="action-list">
       {#each actions as action, i}
@@ -55,6 +73,31 @@
   .action-count {
     font-size: 11px;
     color: var(--text-muted, #888);
+  }
+
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #666);
+    cursor: pointer;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    margin-left: auto;
+  }
+
+  .actions:hover .copy-btn {
+    opacity: 1;
+  }
+
+  .copy-btn:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-primary, #fff);
   }
 
   .action-list {

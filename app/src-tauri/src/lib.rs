@@ -77,6 +77,9 @@ pub fn run() {
             commands::read_links,
             commands::read_processed,
             commands::get_agent_status,
+            // Template commands
+            commands::list_templates,
+            commands::create_from_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

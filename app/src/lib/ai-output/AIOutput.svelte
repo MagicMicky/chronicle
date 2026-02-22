@@ -17,9 +17,10 @@
   import KeyPoints from './KeyPoints.svelte';
   import ActionList from './ActionList.svelte';
   import Questions from './Questions.svelte';
-  import { Bot, Sparkles, AlertCircle, Minus, Link } from 'lucide-svelte';
+  import { Bot, Sparkles, AlertCircle, Minus, Link, Copy, Download } from 'lucide-svelte';
   import { relatedNotes, linksStore } from '$lib/stores/links';
   import { invoke } from '@tauri-apps/api/core';
+  import { toast } from '$lib/stores/toast';
 
   let result: AIResult | null = $state(null);
   let processing = $state(false);
@@ -144,6 +145,53 @@
   function formatTime(date: Date): string {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+
+  function buildFullMarkdown(): string {
+    if (!result?.sections) return '';
+    const parts: string[] = [];
+    if (result.sections.tldr) {
+      parts.push(`## TL;DR\n\n${result.sections.tldr}`);
+    }
+    if (result.sections.keyPoints.length > 0) {
+      parts.push(`## Key Points\n\n${result.sections.keyPoints.map((p) => `- ${p}`).join('\n')}`);
+    }
+    if (result.sections.actions.length > 0) {
+      parts.push(
+        `## Action Items\n\n${result.sections.actions.map((a) => `- [${a.completed ? 'x' : ' '}] ${a.text}${a.owner ? ` (@${a.owner})` : ''}`).join('\n')}`
+      );
+    }
+    if (result.sections.questions.length > 0) {
+      parts.push(`## Open Questions\n\n${result.sections.questions.map((q) => `- ${q}`).join('\n')}`);
+    }
+    return parts.join('\n\n');
+  }
+
+  async function handleCopySummary() {
+    const md = buildFullMarkdown();
+    if (!md) return;
+    try {
+      await navigator.clipboard.writeText(md);
+      toast.success('Copied!', 2000);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  }
+
+  async function handleExport() {
+    if (!result?.sections || !currentPath || !workspacePath) return;
+    const md = buildFullMarkdown();
+    if (!md) return;
+    const filename = currentPath.split('/').pop() ?? '';
+    const exportName = filename.replace(/\.md$/, '.processed.md');
+    const dir = currentPath.substring(0, currentPath.lastIndexOf('/'));
+    const exportPath = `${dir}/${exportName}`;
+    try {
+      await invoke('write_file', { path: exportPath, content: md });
+      toast.success(`Exported to ${exportName}`, 3000);
+    } catch {
+      toast.error('Failed to export');
+    }
+  }
 </script>
 
 <div class="ai-output">
@@ -151,6 +199,22 @@
     <span class="pane-title">AI Output</span>
     <div class="header-actions">
       {#if hasResult && result?.sections}
+        <button
+          class="icon-btn"
+          onclick={handleCopySummary}
+          title="Copy Summary"
+          aria-label="Copy Summary"
+        >
+          <Copy size={13} />
+        </button>
+        <button
+          class="icon-btn"
+          onclick={handleExport}
+          title="Export as .processed.md"
+          aria-label="Export processed note"
+        >
+          <Download size={13} />
+        </button>
         <button
           class="action-btn"
           class:active={showRaw}
@@ -310,6 +374,24 @@
     background: var(--accent-color, #0078d4);
     border-color: var(--accent-color, #0078d4);
     color: #fff;
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #888);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+
+  .icon-btn:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-primary, #fff);
   }
 
   .collapse-btn {
