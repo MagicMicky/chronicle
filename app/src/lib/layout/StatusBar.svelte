@@ -5,13 +5,13 @@
 
   import {
     isAIProcessing,
-    processingStyle,
-    triggerProcessing,
-    PROCESSING_STYLES,
+    aiOutputStore,
     isMcpConnected,
   } from '$lib/stores/aiOutput';
+  import { invoke } from '@tauri-apps/api/core';
   import { fileStatuses } from '$lib/stores/fileStatus';
-  import { Sun, Moon, Check, Loader2, Pencil, AlertTriangle } from 'lucide-svelte';
+  import { isAgentsRunning, lastAgentRun } from '$lib/stores/agentStatus';
+  import { Sun, Moon, Check, Loader2, Pencil, AlertTriangle, Brain } from 'lucide-svelte';
   import { onDestroy } from 'svelte';
 
   let theme = 'dark';
@@ -35,13 +35,15 @@
   $: workspaceOpen = $hasWorkspace;
   $: workspaceName = $currentWorkspace?.name ?? '';
   $: processing = $isAIProcessing;
-  $: selectedStyle = $processingStyle;
   $: content = $noteContent;
+  $: workspace = $currentWorkspace;
   $: note = $currentNote;
   $: statuses = $fileStatuses;
   $: saved = $lastSaved;
   $: error = $saveError;
   $: mcpConnected = $isMcpConnected;
+  $: agentsRunning = $isAgentsRunning;
+  $: lastAgentsRun = $lastAgentRun;
 
   // Relative time display
   let relativeTime = '';
@@ -106,13 +108,15 @@
     }
   }
 
-  function handleProcess() {
-    triggerProcessing(selectedStyle);
-  }
-
-  function handleStyleChange(e: Event) {
-    const target = e.target as HTMLSelectElement;
-    processingStyle.set(target.value);
+  async function handleProcess() {
+    if (!note?.path || !workspace?.path) return;
+    aiOutputStore.setProcessing(true);
+    try {
+      await invoke('process_note', { workspacePath: workspace.path, notePath: note.path });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      aiOutputStore.setError(msg);
+    }
   }
 </script>
 
@@ -166,23 +170,11 @@
   <div class="status-right">
     {#if noteOpen}
       <div class="process-controls">
-        <select
-          class="style-select"
-          value={selectedStyle}
-          on:change={handleStyleChange}
-          disabled={processing}
-          title="Processing style"
-          aria-label="Processing style"
-        >
-          {#each PROCESSING_STYLES as style}
-            <option value={style.value}>{style.label}</option>
-          {/each}
-        </select>
         <button
           class="process-btn"
           on:click={handleProcess}
           disabled={processing || !noteOpen}
-          title="Process note (Cmd/Ctrl+Shift+P)"
+          title="Process note (Cmd/Ctrl+Enter)"
           aria-label="Process note"
         >
           {#if processing}
@@ -193,6 +185,17 @@
           {/if}
         </button>
       </div>
+    {/if}
+    {#if agentsRunning}
+      <span class="agent-status running" title="Background agents organizing your notes">
+        <span class="agent-spinner"></span>
+        Organizing...
+      </span>
+    {:else if lastAgentsRun}
+      <span class="agent-status idle" title="Last organized: {formatRelativeTime(lastAgentsRun)}">
+        <Brain size={11} />
+        {formatRelativeTime(lastAgentsRun)}
+      </span>
     {/if}
     <span
       class="mcp-status"
@@ -334,27 +337,6 @@
     gap: 4px;
   }
 
-  .style-select {
-    height: 18px;
-    font-size: 11px;
-    padding: 0 4px;
-    background: var(--status-bg, #1a1a1a);
-    color: var(--text-muted, #888);
-    border: 1px solid var(--border-color, #333);
-    border-radius: 3px;
-    cursor: pointer;
-    outline: none;
-  }
-
-  .style-select:hover {
-    border-color: var(--text-muted, #888);
-  }
-
-  .style-select:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
   .process-btn {
     display: flex;
     align-items: center;
@@ -410,6 +392,32 @@
 
   .mcp-status.disconnected {
     background-color: #666;
+  }
+
+  /* Agent status */
+  .agent-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .agent-status.running {
+    color: var(--accent-color, #0078d4);
+  }
+
+  .agent-status.idle {
+    color: var(--text-muted, #666);
+  }
+
+  .agent-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid rgba(0, 120, 212, 0.3);
+    border-top-color: var(--accent-color, #0078d4);
+    border-radius: 50%;
+    animation: status-spin 0.8s linear infinite;
   }
 
   .theme-toggle {

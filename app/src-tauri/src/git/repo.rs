@@ -16,6 +16,7 @@ pub enum GitError {
 
 const DEFAULT_GITIGNORE: &str = r#"# Chronicle app state (not content)
 .chronicle/state.json
+.chronicle/agent-runs.json
 
 # MCP configuration (auto-generated, machine-specific paths)
 .mcp.json

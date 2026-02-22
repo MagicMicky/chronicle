@@ -1,9 +1,8 @@
-import { writable, derived, get } from 'svelte/store';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { writable, derived } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { uiStore } from '$lib/stores/ui';
 
-// MCP connection status store
+// Claude CLI availability status (replaces old WebSocket MCP connection status)
 export const isMcpConnected = writable<boolean>(false);
 
 export interface ActionItem {
@@ -53,13 +52,6 @@ function autoExpandAIPanel() {
   }
 }
 
-/** Auto-collapse the AI panel (unless user manually overrode) */
-function autoCollapseAIPanel() {
-  if (!manualOverride) {
-    uiStore.setCollapsed('aiOutput', true);
-  }
-}
-
 /** Reset manual override (called on file switch) */
 export function resetAIPanelOverride() {
   manualOverride = false;
@@ -98,34 +90,6 @@ function createAIOutputStore() {
 
     // Clear all state
     clear: () => set(defaultState),
-
-    // Handle processingComplete WebSocket push
-    handleProcessingComplete: (data: {
-      path?: string;
-      result?: {
-        summary?: string;
-        style?: string;
-        tokens?: { input_tokens?: number; output_tokens?: number };
-      };
-    }) => {
-      autoExpandAIPanel();
-      update((s) => ({
-        ...s,
-        result: {
-          path: data.path ?? '',
-          processedAt: new Date(),
-          summary: data.result?.summary ?? '',
-          style: data.result?.style ?? 'standard',
-          tokens: {
-            input: data.result?.tokens?.input_tokens ?? 0,
-            output: data.result?.tokens?.output_tokens ?? 0,
-          },
-          sections: null, // Will be loaded separately
-        },
-        isProcessing: false,
-        error: null,
-      }));
-    },
 
     // Load parsed sections from the processed file
     loadSections: async (fullPath: string) => {
@@ -180,116 +144,12 @@ export const isLoadingSections = derived(
   ($s) => $s.isLoadingSections
 );
 
-// Processing style preference
-export const processingStyle = writable<string>('standard');
-
-// Available processing styles
-export const PROCESSING_STYLES = [
-  { value: 'standard', label: 'Standard' },
-  { value: 'brief', label: 'Brief' },
-  { value: 'detailed', label: 'Detailed' },
-  { value: 'focused', label: 'Focused' },
-  { value: 'structured', label: 'Structured' },
-] as const;
-
-// Timeout waiting for MCP server acknowledgment (10 seconds)
-const ACK_TIMEOUT_MS = 10_000;
-let ackTimeoutId: ReturnType<typeof setTimeout> | null = null;
-let processingAcknowledged = false;
-
-// Clear any active ack timeout
-function clearAckTimeout() {
-  if (ackTimeoutId !== null) {
-    clearTimeout(ackTimeoutId);
-    ackTimeoutId = null;
-  }
-}
-
-// Called when MCP server acknowledges the processing request
-export function handleProcessingStarted() {
-  processingAcknowledged = true;
-  clearAckTimeout();
-}
-
-// Trigger processing of the current note
-export async function triggerProcessing(style?: string): Promise<void> {
-  const currentStyle = style ?? get(processingStyle);
-
-  // Set processing state immediately
-  aiOutputStore.setProcessing(true);
-  processingAcknowledged = false;
-  clearAckTimeout();
-
-  // Short timeout: if MCP server doesn't acknowledge within 10s, it's not connected
-  ackTimeoutId = setTimeout(() => {
-    if (get(isAIProcessing) && !processingAcknowledged) {
-      aiOutputStore.setError('Processing timed out. Is the MCP server running?');
-    }
-  }, ACK_TIMEOUT_MS);
-
+// Check Claude CLI availability on startup
+export async function checkClaudeAvailability(): Promise<void> {
   try {
-    await invoke('trigger_processing', { style: currentStyle });
-    // The actual result/error will come via Tauri events (ai:processing-complete / ai:processing-error)
-  } catch (err) {
-    clearAckTimeout();
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    aiOutputStore.setError(errorMsg);
-  }
-}
-
-// Initialize Tauri event listeners for AI processing events
-export async function initAIEventListeners(): Promise<UnlistenFn[]> {
-  const unlisteners: UnlistenFn[] = [];
-
-  // Fetch initial MCP connection status
-  try {
-    const connected = await invoke<boolean>('get_mcp_status');
-    isMcpConnected.set(connected);
+    const available = await invoke<boolean>('get_mcp_status');
+    isMcpConnected.set(available);
   } catch {
     isMcpConnected.set(false);
   }
-
-  // Listen for MCP connection state changes
-  unlisteners.push(
-    await listen<boolean>('mcp:connection-changed', (event) => {
-      console.log('MCP connection changed:', event.payload);
-      isMcpConnected.set(event.payload);
-    })
-  );
-
-  // Listen for processing started acknowledgment from MCP server
-  unlisteners.push(
-    await listen('ai:processing-started', () => {
-      console.log('Received ai:processing-started event');
-      handleProcessingStarted();
-    })
-  );
-
-  // Listen for processing complete events
-  unlisteners.push(
-    await listen<{
-      path: string;
-      result: {
-        summary: string;
-        style: string;
-        tokens: { input_tokens: number; output_tokens: number };
-      };
-    }>('ai:processing-complete', (event) => {
-      console.log('Received ai:processing-complete event:', event.payload);
-      clearAckTimeout();
-      aiOutputStore.handleProcessingComplete(event.payload);
-    })
-  );
-
-  // Listen for processing error events
-  unlisteners.push(
-    await listen<{ error: string }>('ai:processing-error', (event) => {
-      console.log('Received ai:processing-error event:', event.payload);
-      clearAckTimeout();
-      aiOutputStore.setError(event.payload.error);
-    })
-  );
-
-  console.log('AI event listeners initialized');
-  return unlisteners;
 }

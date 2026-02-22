@@ -22,7 +22,9 @@
   import FileTree from './FileTree.svelte';
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import type { MenuItem } from '$lib/components/ContextMenu.svelte';
-  import { FolderOpen, Plus, Minus, CalendarDays, ChevronRight, ChevronDown, FileText } from 'lucide-svelte';
+  import { FolderOpen, Plus, Minus, CalendarDays, ChevronRight, ChevronDown, FileText, Tag, CircleAlert, CircleCheck, Clock } from 'lucide-svelte';
+  import { tagsStore, tagsList, selectedTag, tagFilteredPaths } from '$lib/stores/tags';
+  import { actionsStore, actionCounts, actionsByNote } from '$lib/stores/actions';
 
   let files: FileNode[] = [];
   let currentFilePath: string | null = null;
@@ -45,9 +47,54 @@
   let renamingPath: string | null = null;
 
   let recentExpanded = true;
+  let tagsExpanded = false;
+  let actionsExpanded = false;
   let filesExpanded = true;
 
+  let tags: { tag: string; count: number }[] = [];
+  let currentSelectedTag: string | null = null;
+  let filteredPaths: Set<string> | null = null;
+  let counts = { open: 0, done: 0, stale: 0 };
+  let actionsBySource = new Map<string, import('$lib/stores/actions').ActionEntry[]>();
+
+  tagsList.subscribe((t) => (tags = t));
+  selectedTag.subscribe((t) => (currentSelectedTag = t));
+  tagFilteredPaths.subscribe((p) => (filteredPaths = p));
+  actionCounts.subscribe((c) => (counts = c));
+  actionsByNote.subscribe((m) => (actionsBySource = m));
+
   let displayRecent: { path: string; name: string; folder: string }[] = [];
+
+  // Filter files based on selected tag
+  function filterFiles(nodes: FileNode[], allowed: Set<string> | null): FileNode[] {
+    if (!allowed) return nodes;
+    return nodes.reduce<FileNode[]>((acc, node) => {
+      if (node.type === 'directory') {
+        const filteredChildren = filterFiles(node.children ?? [], allowed);
+        if (filteredChildren.length > 0) {
+          acc.push({ ...node, children: filteredChildren });
+        }
+      } else if (allowed.has(node.path) || allowed.has(node.name)) {
+        acc.push(node);
+      }
+      return acc;
+    }, []);
+  }
+
+  $: displayFiles = filterFiles(files, filteredPaths);
+
+  function handleTagClick(tag: string) {
+    tagsStore.selectTag(tag);
+  }
+
+  function handleActionSourceClick(source: string) {
+    // Source is a relative path like "2026-02-22-standup.md"
+    // Find matching file in workspace
+    if (wsPath) {
+      const fullPath = source.startsWith('/') ? source : `${wsPath}/${source}`;
+      handleFileClick(fullPath);
+    }
+  }
 
   // Subscribe to stores
   workspaceFiles.subscribe((f) => (files = f));
@@ -69,6 +116,18 @@
 
   onMount(() => {
     workspaceStore.loadRecentWorkspaces();
+
+    // Listen for open-file events from AI panel (related notes)
+    function handleOpenFile(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.path) {
+        handleFileClick(detail.path);
+      }
+    }
+    window.addEventListener('chronicle:open-file', handleOpenFile);
+    return () => {
+      window.removeEventListener('chronicle:open-file', handleOpenFile);
+    };
   });
 
   function handleCollapse() {
@@ -391,6 +450,110 @@
         </div>
       {/if}
 
+      <!-- Tags Section -->
+      <div class="section">
+        <button class="section-header" on:click={() => (tagsExpanded = !tagsExpanded)}>
+          <span class="section-chevron">
+            {#if tagsExpanded}
+              <ChevronDown size={12} />
+            {:else}
+              <ChevronRight size={12} />
+            {/if}
+          </span>
+          <span class="section-title">Tags</span>
+          {#if tags.length > 0}
+            <span class="section-count">({tags.length})</span>
+          {/if}
+        </button>
+        {#if tagsExpanded}
+          <div class="tags-content">
+            {#if tags.length > 0}
+              <div class="tags-list">
+                {#each tags as { tag, count } (tag)}
+                  <button
+                    class="tag-pill"
+                    class:active={currentSelectedTag === tag}
+                    on:click={() => handleTagClick(tag)}
+                    title="{count} note{count !== 1 ? 's' : ''}"
+                  >
+                    <span class="tag-name">#{tag}</span>
+                    <span class="tag-count">{count}</span>
+                  </button>
+                {/each}
+              </div>
+            {:else}
+              <div class="section-empty">
+                <span class="empty-text">No tags yet</span>
+                <span class="empty-hint">Tags appear after AI organizes your notes</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <!-- Actions Section -->
+      <div class="section">
+        <button class="section-header" on:click={() => (actionsExpanded = !actionsExpanded)}>
+          <span class="section-chevron">
+            {#if actionsExpanded}
+              <ChevronDown size={12} />
+            {:else}
+              <ChevronRight size={12} />
+            {/if}
+          </span>
+          <span class="section-title">Actions</span>
+          {#if counts.open + counts.stale > 0}
+            <span class="section-count actions-count">
+              {counts.open + counts.stale}
+              {#if counts.stale > 0}
+                <span class="stale-badge">{counts.stale}</span>
+              {/if}
+            </span>
+          {/if}
+        </button>
+        {#if actionsExpanded}
+          <div class="actions-content">
+            {#if actionsBySource.size > 0}
+              {#each [...actionsBySource.entries()] as [source, items] (source)}
+                <div class="action-group">
+                  <button
+                    class="action-source"
+                    on:click={() => handleActionSourceClick(source)}
+                    title="Open {source}"
+                  >
+                    <FileText size={12} />
+                    <span class="action-source-name">{source}</span>
+                  </button>
+                  {#each items as item}
+                    <button
+                      class="action-item"
+                      class:stale={item.status === 'stale'}
+                      on:click={() => handleActionSourceClick(item.source)}
+                      title="{item.status === 'stale' ? 'Overdue: ' : ''}{item.text}"
+                    >
+                      {#if item.status === 'stale'}
+                        <CircleAlert size={12} />
+                      {:else}
+                        <CircleCheck size={12} />
+                      {/if}
+                      <span class="action-text">{item.text}</span>
+                      {#if item.owner}
+                        <span class="action-owner">@{item.owner}</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              {/each}
+            {:else}
+              <div class="section-empty">
+                <span class="empty-text">No open actions</span>
+                <span class="empty-hint">Actions are tracked from your notes</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
       <!-- Files Section -->
       <div class="section section-files">
         <button class="section-header" on:click={() => (filesExpanded = !filesExpanded)}>
@@ -403,10 +566,15 @@
           </span>
           <span class="section-title">Files</span>
           <span class="section-count">({fileCount})</span>
+          {#if currentSelectedTag}
+            <span class="filter-indicator" title="Filtered by #{currentSelectedTag}">
+              <Tag size={10} />
+            </span>
+          {/if}
         </button>
         {#if filesExpanded}
           <FileTree
-            {files}
+            files={displayFiles}
             {currentFilePath}
             onFileClick={handleFileClick}
             onContextMenu={handleNodeContextMenu}
@@ -706,5 +874,174 @@
 
   .recent-ws-item:hover {
     background: var(--border-color, #333);
+  }
+
+  /* Tags section */
+  .tags-content {
+    padding: 6px 12px;
+  }
+
+  .tags-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    background: var(--hover-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 12px;
+    color: var(--text-secondary, #ccc);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .tag-pill:hover {
+    background: var(--border-color, #333);
+    border-color: var(--text-muted, #888);
+  }
+
+  .tag-pill.active {
+    background: var(--accent-color, #0078d4);
+    border-color: var(--accent-color, #0078d4);
+    color: #fff;
+  }
+
+  .tag-name {
+    white-space: nowrap;
+  }
+
+  .tag-count {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+
+  .tag-pill.active .tag-count {
+    opacity: 0.9;
+  }
+
+  /* Actions section */
+  .actions-content {
+    padding: 2px 0;
+  }
+
+  .actions-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .stale-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    background: var(--warning-color, #cca700);
+    color: #000;
+    border-radius: 7px;
+    font-weight: 600;
+  }
+
+  .action-group {
+    margin-bottom: 2px;
+  }
+
+  .action-source {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text-muted, #888);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    text-transform: none;
+  }
+
+  .action-source:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-secondary, #ccc);
+  }
+
+  .action-source-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .action-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 3px 12px 3px 28px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #ccc);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    line-height: 1.3;
+  }
+
+  .action-item:hover {
+    background: var(--hover-bg, #333);
+  }
+
+  .action-item.stale {
+    color: var(--warning-color, #cca700);
+  }
+
+  .action-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .action-owner {
+    font-size: 10px;
+    color: var(--text-muted, #666);
+    flex-shrink: 0;
+  }
+
+  .filter-indicator {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent-color, #0078d4);
+    margin-left: 4px;
+  }
+
+  /* Shared empty state for sections */
+  .section-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px;
+    gap: 4px;
+  }
+
+  .empty-text {
+    font-size: 12px;
+    color: var(--text-muted, #888);
+  }
+
+  .empty-hint {
+    font-size: 11px;
+    color: var(--text-muted, #666);
+    opacity: 0.7;
+    text-align: center;
   }
 </style>

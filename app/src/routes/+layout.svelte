@@ -2,8 +2,13 @@
   import '../app.css';
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
-  import { initAIEventListeners, triggerProcessing, setAIPanelManualOverride } from '$lib/stores/aiOutput';
-  import { hasOpenNote, isNoteDirty, noteStore, loadLastSession, saveLastSession, openDailyNote } from '$lib/stores/note';
+  import { checkClaudeAvailability, aiOutputStore, setAIPanelManualOverride } from '$lib/stores/aiOutput';
+  import { tagsStore, initTagsListener } from '$lib/stores/tags';
+  import { actionsStore, initActionsListener } from '$lib/stores/actions';
+  import { linksStore, initLinksListener } from '$lib/stores/links';
+  import { agentStatusStore, initAgentListeners } from '$lib/stores/agentStatus';
+  import { listen as tauriListen } from '@tauri-apps/api/event';
+  import { hasOpenNote, isNoteDirty, noteStore, currentNote, loadLastSession, saveLastSession, openDailyNote } from '$lib/stores/note';
   import { workspaceStore, currentWorkspace, hasWorkspace } from '$lib/stores/workspace';
   import { sessionStore } from '$lib/stores/session';
   import { autoSaveStore } from '$lib/stores/autosave';
@@ -24,6 +29,23 @@
   }
 
   let { children }: Props = $props();
+  /** Process the current note via claude -p */
+  async function processCurrentNote() {
+    const note = get(currentNote);
+    const ws = get(currentWorkspace);
+    if (!note?.path || !ws?.path) return;
+
+    aiOutputStore.setProcessing(true);
+    try {
+      const inv = await getInvoke();
+      await inv('process_note', { workspacePath: ws.path, notePath: note.path });
+      // Result/error will arrive via claude:task-completed / claude:task-error events
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      aiOutputStore.setError(msg);
+    }
+  }
+
   let showShortcuts = $state(false);
   let showQuickOpen = $state(false);
   let showSearch = $state(false);
@@ -52,7 +74,6 @@
   }
 
   onMount(() => {
-    let aiUnlisteners: UnlistenFn[] = [];
     let destroyed = false;
 
     // Theme initialization: check saved preference, then system preference
@@ -72,15 +93,148 @@
     }
     mediaQuery.addEventListener('change', handleSystemThemeChange);
 
-    // Initialize AI event listeners
-    initAIEventListeners().then((unlisteners) => {
+    // Check Claude CLI availability
+    checkClaudeAvailability();
+
+    // Initialize chronicle intelligence listeners (tags, actions, links, agents)
+    const intelligenceCleanups: (() => void)[] = [];
+    Promise.all([
+      initTagsListener(),
+      initActionsListener(),
+      initLinksListener(),
+      initAgentListeners(),
+    ]).then(([tagsUn, actionsUn, linksUn, agentUns]) => {
       if (destroyed) {
-        // Component unmounted before listeners were ready — clean up immediately
-        unlisteners.forEach((fn) => fn());
+        tagsUn();
+        actionsUn();
+        linksUn();
+        agentUns.forEach((fn) => fn());
       } else {
-        aiUnlisteners = unlisteners;
+        intelligenceCleanups.push(tagsUn, actionsUn, linksUn, ...agentUns);
       }
     });
+
+    // Listen for claude:task-started / completed / error for process_note flow
+    let claudeTaskCleanups: (() => void)[] = [];
+    Promise.all([
+      tauriListen<{ task: string; note?: string }>('claude:task-started', (event) => {
+        if (event.payload.task === 'process') {
+          aiOutputStore.setProcessing(true);
+        }
+      }),
+      tauriListen<{ task: string; note?: string; result: unknown }>('claude:task-completed', (event) => {
+        if (event.payload.task === 'process') {
+          aiOutputStore.setProcessing(false);
+          // Reload processed content from .chronicle/processed/
+          const note = get(currentNote);
+          const ws = get(currentWorkspace);
+          if (note?.path && ws?.path) {
+            // Trigger a re-render by briefly clearing then the effect in AIOutput will reload
+            aiOutputStore.clear();
+            // Small delay to let the file write settle
+            setTimeout(() => {
+              // Force re-open the same note to trigger processed load
+              const n = get(currentNote);
+              if (n) aiOutputStore.setResult({
+                path: n.path ?? '',
+                processedAt: new Date(),
+                summary: '',
+                style: 'standard',
+                tokens: { input: 0, output: 0 },
+                sections: null,
+              });
+            }, 500);
+          }
+        }
+      }),
+      tauriListen<{ task: string; error: string }>('claude:task-error', (event) => {
+        if (event.payload.task === 'process') {
+          aiOutputStore.setError(event.payload.error);
+        }
+      }),
+      // Listen for chronicle:processed-updated to reload processed data
+      tauriListen('chronicle:processed-updated', () => {
+        // Processed files changed - reload for current note
+        const note = get(currentNote);
+        const ws = get(currentWorkspace);
+        if (note?.path && ws?.path) {
+          const filename = note.path.split('/').pop()?.replace(/\.md$/, '') ?? '';
+          if (filename) {
+            import('@tauri-apps/api/core').then(({ invoke }) => {
+              invoke('read_processed', { workspacePath: ws.path, noteName: filename }).then((data: unknown) => {
+                const d = data as Record<string, unknown> | null;
+                if (d && typeof d === 'object' && d.tldr) {
+                  aiOutputStore.setResult({
+                    path: note.path ?? '',
+                    processedAt: d.processedAt ? new Date(d.processedAt as string) : new Date(),
+                    summary: (d.tldr as string) ?? '',
+                    style: 'standard',
+                    tokens: { input: 0, output: 0 },
+                    sections: {
+                      tldr: (d.tldr as string) ?? null,
+                      keyPoints: (d.keyPoints as string[]) ?? [],
+                      actions: ((d.actionItems as Array<{ text: string; owner?: string; done?: boolean }>) ?? []).map((a) => ({
+                        text: a.text,
+                        owner: a.owner ?? null,
+                        completed: a.done ?? false,
+                      })),
+                      questions: (d.questions as string[]) ?? [],
+                      rawNotes: null,
+                    },
+                  });
+                }
+              }).catch(() => {});
+            });
+          }
+        }
+      }),
+    ]).then((unlisteners) => {
+      if (destroyed) {
+        unlisteners.forEach((fn) => fn());
+      } else {
+        claudeTaskCleanups = unlisteners;
+      }
+    });
+
+    // Load initial intelligence data when workspace is available
+    const wsUnsub = currentWorkspace.subscribe((ws) => {
+      if (ws) {
+        tagsStore.load();
+        actionsStore.load();
+        linksStore.load();
+        agentStatusStore.loadStatus();
+      }
+    });
+
+    // Idle timer: trigger background agents after 2 min of no edits
+    const IDLE_TIMEOUT_MS = 2 * 60 * 1000;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function resetIdleTimer() {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (!get(hasWorkspace)) return;
+      idleTimer = setTimeout(async () => {
+        const ws = get(currentWorkspace);
+        if (!ws) return;
+        try {
+          const inv = await getInvoke();
+          await inv('run_background_agents', { workspacePath: ws.path });
+        } catch (err) {
+          console.error('Background agents failed:', err);
+        }
+      }, IDLE_TIMEOUT_MS);
+    }
+
+    // Reset idle timer on content changes via autosave's onContentChange
+    // We listen for dirty state changes as a proxy for edits
+    const dirtyUnsub = isNoteDirty.subscribe((dirty) => {
+      if (dirty) {
+        resetIdleTimer();
+      }
+    });
+
+    // Start idle timer initially
+    resetIdleTimer();
 
     // Restore last session (workspace + file)
     restoreLastSession();
@@ -155,7 +309,7 @@
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'P') {
         e.preventDefault();
         if (get(hasOpenNote)) {
-          triggerProcessing();
+          processCurrentNote();
         }
       }
       // Cmd/Ctrl + T: Open today's daily note
@@ -192,7 +346,7 @@
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         if (get(hasOpenNote)) {
-          triggerProcessing();
+          processCurrentNote();
         }
       }
       // Cmd/Ctrl + N: New note
@@ -247,8 +401,12 @@
       document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       mediaQuery.removeEventListener('change', handleSystemThemeChange);
-      aiUnlisteners.forEach((fn) => fn());
+      intelligenceCleanups.forEach((fn) => fn());
+      claudeTaskCleanups.forEach((fn) => fn());
       closeUnlisten?.();
+      wsUnsub();
+      dirtyUnsub();
+      if (idleTimer) clearTimeout(idleTimer);
     };
   });
 </script>

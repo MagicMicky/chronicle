@@ -7,7 +7,6 @@
     aiError,
     hasAIResult,
     isLoadingSections,
-    triggerProcessing,
     resetAIPanelOverride,
     setAIPanelManualOverride,
     type AIResult,
@@ -18,7 +17,9 @@
   import KeyPoints from './KeyPoints.svelte';
   import ActionList from './ActionList.svelte';
   import Questions from './Questions.svelte';
-  import { Bot, Sparkles, AlertCircle, Minus } from 'lucide-svelte';
+  import { Bot, Sparkles, AlertCircle, Minus, Link } from 'lucide-svelte';
+  import { relatedNotes, linksStore } from '$lib/stores/links';
+  import { invoke } from '@tauri-apps/api/core';
 
   let result: AIResult | null = $state(null);
   let processing = $state(false);
@@ -28,6 +29,7 @@
   let showRaw = $state(false);
   let currentPath: string | null = $state(null);
   let workspacePath: string | null = $state(null);
+  let related: string[] = $state([]);
 
   // Reactive store subscriptions — $effect auto-cleans up the returned unsubscribe
   $effect(() =>
@@ -60,6 +62,60 @@
       workspacePath = ws?.path ?? null;
     })
   );
+  $effect(() =>
+    relatedNotes.subscribe((r) => {
+      related = r;
+    })
+  );
+
+  // Load processed content from .chronicle/processed/ when file changes
+  $effect(() => {
+    if (currentPath && workspacePath) {
+      loadProcessedFromChronicle(currentPath, workspacePath);
+    }
+  });
+
+  async function loadProcessedFromChronicle(notePath: string, wsPath: string) {
+    const filename = notePath.split('/').pop()?.replace(/\.md$/, '') ?? '';
+    if (!filename) return;
+    try {
+      const data = await invoke<Record<string, unknown> | null>('read_processed', {
+        workspacePath: wsPath,
+        noteName: filename,
+      });
+      if (data && typeof data === 'object' && data.tldr) {
+        // We have processed data from .chronicle/processed/
+        const sections = {
+          tldr: (data.tldr as string) ?? null,
+          keyPoints: (data.keyPoints as string[]) ?? [],
+          actions: ((data.actionItems as Array<{ text: string; owner?: string; done?: boolean }>) ?? []).map((a) => ({
+            text: a.text,
+            owner: a.owner ?? null,
+            completed: a.done ?? false,
+          })),
+          questions: (data.questions as string[]) ?? [],
+          rawNotes: null,
+        };
+        aiOutputStore.setResult({
+          path: notePath,
+          processedAt: data.processedAt ? new Date(data.processedAt as string) : new Date(),
+          summary: (data.tldr as string) ?? '',
+          style: 'standard',
+          tokens: { input: 0, output: 0 },
+          sections,
+        });
+      }
+    } catch {
+      // No processed content for this note yet
+    }
+  }
+
+  function handleRelatedClick(notePath: string) {
+    if (!workspacePath) return;
+    const fullPath = notePath.startsWith('/') ? notePath : `${workspacePath}/${notePath}`;
+    // Navigate to the related note by dispatching to the explorer's file click handler
+    window.dispatchEvent(new CustomEvent('chronicle:open-file', { detail: { path: fullPath } }));
+  }
 
   function handleCollapse() {
     setAIPanelManualOverride();
@@ -70,8 +126,15 @@
     aiOutputStore.setError('');
   }
 
-  function handleRetry() {
-    triggerProcessing();
+  async function handleRetry() {
+    if (!currentPath || !workspacePath) return;
+    aiOutputStore.setProcessing(true);
+    try {
+      await invoke('process_note', { workspacePath, notePath: currentPath });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      aiOutputStore.setError(msg);
+    }
   }
 
   function toggleRaw() {
@@ -169,8 +232,29 @@
       <div class="state-container ready">
         <span class="state-icon"><Bot size={32} /></span>
         <span class="state-text">Ready to process</span>
-        <span class="state-hint">Press Cmd/Ctrl+Shift+P or click Process in the status bar</span>
+        <span class="state-hint">Press Cmd/Ctrl+Enter or click Process in the status bar</span>
       </div>
+    {/if}
+
+    <!-- Related Notes (shown if there are any, regardless of processing state) -->
+    {#if related.length > 0}
+      <section class="related-notes">
+        <h3 class="related-title">
+          <Link size={12} />
+          Related Notes
+        </h3>
+        <div class="related-list">
+          {#each related as notePath (notePath)}
+            <button
+              class="related-item"
+              onclick={() => handleRelatedClick(notePath)}
+              title={notePath}
+            >
+              {notePath.split('/').pop()?.replace(/\.md$/, '') ?? notePath}
+            </button>
+          {/each}
+        </div>
+      </section>
     {/if}
   </div>
 </div>
@@ -424,5 +508,48 @@
   .meta-label {
     color: var(--text-muted, #666);
     margin-right: 4px;
+  }
+
+  /* Related Notes */
+  .related-notes {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color, #333);
+  }
+
+  .related-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #888);
+    margin: 0 0 8px 0;
+  }
+
+  .related-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .related-item {
+    display: block;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--accent-color, #0078d4);
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    text-align: left;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+
+  .related-item:hover {
+    background: var(--hover-bg, #333);
+    text-decoration: underline;
   }
 </style>

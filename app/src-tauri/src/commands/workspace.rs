@@ -1,6 +1,8 @@
+use crate::commands::chronicle::init_chronicle_dir;
 use crate::git;
 use crate::models::{FileNode, Workspace, WorkspaceInfo};
 use crate::storage;
+use crate::watcher::ChronicleWatcher;
 use chrono::Utc;
 use serde_json::json;
 use std::path::Path;
@@ -37,6 +39,18 @@ pub async fn open_workspace(
     // Create .claude/settings.json to auto-approve Chronicle MCP tools
     if let Err(e) = create_claude_settings(workspace_path) {
         tracing::warn!("Failed to create .claude/settings.json: {}", e);
+    }
+
+    // Initialize .chronicle/ directory structure
+    if let Err(e) = init_chronicle_dir(workspace_path) {
+        tracing::warn!("Failed to initialize .chronicle/: {}", e);
+    }
+
+    // Start filesystem watcher on .chronicle/
+    if let Some(watcher) = app_handle.try_state::<ChronicleWatcher>() {
+        if let Err(e) = watcher.start(&path, app_handle.clone()) {
+            tracing::warn!("Failed to start chronicle watcher: {}", e);
+        }
     }
 
     // List files

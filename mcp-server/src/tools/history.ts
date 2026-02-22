@@ -1,10 +1,6 @@
 import { execFileSync } from "child_process";
 import path from "path";
-import {
-  getWorkspacePath,
-  getCurrentFile,
-  isConnected,
-} from "../websocket/client.js";
+import { getWorkspacePath, getCurrentFilePath } from "../state.js";
 
 /**
  * Validate that a commit reference contains only safe characters
@@ -36,28 +32,23 @@ function validateWorkspacePath(workspace: string, target: string): string {
 /**
  * Resolve a file path from input, handling 'current' specially
  */
-async function resolveFilePath(
+function resolveFilePath(
   inputPath: string
-): Promise<{ workspacePath: string; relativePath: string }> {
-  const workspacePath = await getWorkspacePath();
+): { workspacePath: string; relativePath: string } {
+  const workspacePath = getWorkspacePath();
   if (!workspacePath) {
     throw new Error("No workspace open in Chronicle");
   }
 
   if (inputPath === "current") {
-    if (!isConnected()) {
-      throw new Error("Not connected to Chronicle app");
-    }
-    const current = await getCurrentFile();
-    if (!current.relativePath) {
+    const currentFile = getCurrentFilePath();
+    if (!currentFile) {
       throw new Error("No note currently open in Chronicle");
     }
-    // Validate even the 'current' path
-    validateWorkspacePath(workspacePath, current.relativePath);
-    return { workspacePath, relativePath: current.relativePath };
+    validateWorkspacePath(workspacePath, currentFile);
+    return { workspacePath, relativePath: currentFile };
   }
 
-  // Validate the user-provided path
   validateWorkspacePath(workspacePath, inputPath);
   return { workspacePath, relativePath: inputPath };
 }
@@ -68,7 +59,7 @@ export interface GetHistoryInput {
 }
 
 export async function getHistory(input: GetHistoryInput): Promise<string> {
-  const { workspacePath, relativePath } = await resolveFilePath(input.path);
+  const { workspacePath, relativePath } = resolveFilePath(input.path);
   const limit = Math.min(Math.max(Number(input.limit) || 10, 1), 100);
 
   try {
@@ -109,18 +100,16 @@ export interface GetVersionInput {
 }
 
 export async function getVersion(input: GetVersionInput): Promise<string> {
-  const { workspacePath, relativePath } = await resolveFilePath(input.path);
+  const { workspacePath, relativePath } = resolveFilePath(input.path);
   const commit = validateCommitRef(input.commit);
 
   try {
-    // Get commit message
     const commitInfo = execFileSync(
       "git",
       ["log", "-1", "--pretty=format:%s", commit],
       { cwd: workspacePath, encoding: "utf-8" }
     ).trim();
 
-    // Get file content at that commit
     const content = execFileSync(
       "git",
       ["show", `${commit}:${relativePath}`],
@@ -144,7 +133,7 @@ export interface CompareVersionsInput {
 export async function compareVersions(
   input: CompareVersionsInput
 ): Promise<string> {
-  const { workspacePath, relativePath } = await resolveFilePath(input.path);
+  const { workspacePath, relativePath } = resolveFilePath(input.path);
   const fromCommit = validateCommitRef(input.from_commit || "HEAD~1");
   const toCommit = validateCommitRef(input.to_commit || "HEAD");
 

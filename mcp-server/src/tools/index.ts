@@ -1,28 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { processMeeting } from "./process.js";
 import { getHistory, getVersion, compareVersions } from "./history.js";
-
-// Schema for process_meeting tool
-const processMeetingSchema = {
-  path: z.string().max(4096).describe(
-    "Path to note file relative to workspace, or 'current' for the active file in Chronicle"
-  ),
-  style: z
-    .enum(["standard", "brief", "detailed", "focused", "structured"])
-    .optional()
-    .default("standard")
-    .describe(
-      "Processing style: standard (balanced), brief (essentials only), detailed (full context), focused (1:1 meetings), structured (compliance/audit)"
-    ),
-  focus: z
-    .string()
-    .max(2048)
-    .optional()
-    .describe(
-      "Optional specific aspect to emphasize (e.g., 'action items only', 'timeline gaps')"
-    ),
-};
 
 // Schema for get_history tool
 const getHistorySchema = {
@@ -54,35 +32,6 @@ const compareVersionsSchema = {
 };
 
 export function registerTools(server: McpServer) {
-  // Register process_meeting tool
-  server.tool(
-    "process_meeting",
-    processMeetingSchema,
-    {
-      title: "Process Meeting Notes",
-      readOnlyHint: false,
-      destructiveHint: false,
-    },
-    async (args) => {
-      try {
-        const result = await processMeeting({
-          path: args.path,
-          style: args.style,
-          focus: args.focus,
-        });
-        return {
-          content: [{ type: "text", text: result.message }],
-        };
-      } catch (e) {
-        const error = e instanceof Error ? e.message : String(e);
-        return {
-          content: [{ type: "text", text: `Error: ${error}` }],
-          isError: true,
-        };
-      }
-    }
-  );
-
   // Register get_history tool
   server.tool(
     "get_history",
