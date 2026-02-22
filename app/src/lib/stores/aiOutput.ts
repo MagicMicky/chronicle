@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { uiStore } from '$lib/stores/ui';
 
 // MCP connection status store
 export const isMcpConnected = writable<boolean>(false);
@@ -42,6 +43,33 @@ const defaultState: AIOutputState = {
   isLoadingSections: false,
 };
 
+// Track whether user manually toggled the AI panel (overrides auto behavior until next file switch)
+let manualOverride = false;
+
+/** Auto-expand the AI panel (unless user manually overrode) */
+function autoExpandAIPanel() {
+  if (!manualOverride) {
+    uiStore.setCollapsed('aiOutput', false);
+  }
+}
+
+/** Auto-collapse the AI panel (unless user manually overrode) */
+function autoCollapseAIPanel() {
+  if (!manualOverride) {
+    uiStore.setCollapsed('aiOutput', true);
+  }
+}
+
+/** Reset manual override (called on file switch) */
+export function resetAIPanelOverride() {
+  manualOverride = false;
+}
+
+/** Set manual override (called when user manually toggles) */
+export function setAIPanelManualOverride() {
+  manualOverride = true;
+}
+
 function createAIOutputStore() {
   const { subscribe, set, update } = writable<AIOutputState>(defaultState);
 
@@ -49,12 +77,20 @@ function createAIOutputStore() {
     subscribe,
 
     // Set processing state
-    setProcessing: (isProcessing: boolean) =>
-      update((s) => ({ ...s, isProcessing, error: null })),
+    setProcessing: (isProcessing: boolean) => {
+      if (isProcessing) {
+        // Processing triggered: force-expand regardless of manual override
+        manualOverride = false;
+        autoExpandAIPanel();
+      }
+      update((s) => ({ ...s, isProcessing, error: null }));
+    },
 
     // Set result from processing
-    setResult: (result: AIResult) =>
-      update((s) => ({ ...s, result, isProcessing: false, error: null })),
+    setResult: (result: AIResult) => {
+      autoExpandAIPanel();
+      update((s) => ({ ...s, result, isProcessing: false, error: null }));
+    },
 
     // Set error state
     setError: (error: string) =>
@@ -72,6 +108,7 @@ function createAIOutputStore() {
         tokens?: { input_tokens?: number; output_tokens?: number };
       };
     }) => {
+      autoExpandAIPanel();
       update((s) => ({
         ...s,
         result: {
@@ -134,6 +171,10 @@ export const aiResult = derived(aiOutputStore, ($s) => $s.result);
 export const isAIProcessing = derived(aiOutputStore, ($s) => $s.isProcessing);
 export const aiError = derived(aiOutputStore, ($s) => $s.error);
 export const hasAIResult = derived(aiOutputStore, ($s) => $s.result !== null);
+export const hasProcessedContent = derived(
+  aiOutputStore,
+  ($s) => $s.result !== null && $s.result.sections !== null
+);
 export const isLoadingSections = derived(
   aiOutputStore,
   ($s) => $s.isLoadingSections

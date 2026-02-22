@@ -8,6 +8,8 @@
     hasAIResult,
     isLoadingSections,
     triggerProcessing,
+    resetAIPanelOverride,
+    setAIPanelManualOverride,
     type AIResult,
   } from '$lib/stores/aiOutput';
   import { currentNote } from '$lib/stores/note';
@@ -46,6 +48,10 @@
         currentPath = note?.path ?? null;
         aiOutputStore.clear();
         showRaw = false;
+        // Reset manual override on file switch so auto behavior kicks in
+        resetAIPanelOverride();
+        // Auto-collapse since we just cleared (no processed content for new file)
+        uiStore.setCollapsed('aiOutput', true);
       }
     })
   );
@@ -56,6 +62,7 @@
   );
 
   function handleCollapse() {
+    setAIPanelManualOverride();
     uiStore.toggleCollapse('aiOutput');
   }
 

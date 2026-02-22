@@ -1,18 +1,39 @@
 <script lang="ts">
   import { uiStore } from '$lib/stores/ui';
+  import { hasAIResult, setAIPanelManualOverride } from '$lib/stores/aiOutput';
   import PaneHandle from './PaneHandle.svelte';
   import Explorer from '$lib/explorer/Explorer.svelte';
   import Editor from '$lib/editor/Editor.svelte';
   import AIOutput from '$lib/ai-output/AIOutput.svelte';
   import Terminal from '$lib/terminal/Terminal.svelte';
+  import { ChevronUp, Sparkles } from 'lucide-svelte';
 
   let ui = $state($uiStore);
+  let prefersReducedMotion = $state(false);
+  let aiHasResult = $state(false);
 
   $effect(() => {
     const unsubscribe = uiStore.subscribe((value) => {
       ui = value;
     });
     return unsubscribe;
+  });
+
+  $effect(() => {
+    const unsubscribe = hasAIResult.subscribe((value) => {
+      aiHasResult = value;
+    });
+    return unsubscribe;
+  });
+
+  $effect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    prefersReducedMotion = mq.matches;
+    function handler(e: MediaQueryListEvent) {
+      prefersReducedMotion = e.matches;
+    }
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   });
 
   function handleExplorerResize(delta: number) {
@@ -53,36 +74,49 @@
         <Editor />
       </div>
 
-      <!-- Terminal -->
-      {#if !ui.collapsed.terminal}
-        <PaneHandle direction="horizontal" onDrag={handleTerminalResize} />
-        <div class="pane terminal-pane" style="height: {ui.terminalHeight}px;">
-          <Terminal />
-        </div>
-      {:else}
+      <!-- Terminal drawer (always mounted to keep PTY alive) -->
+      {#if ui.collapsed.terminal}
         <button
-          class="collapsed-pane-btn horizontal"
+          class="terminal-bar"
           onclick={() => uiStore.toggleCollapse('terminal')}
-          title="Expand Terminal"
+          title="Expand Terminal (Cmd+`)"
         >
-          <span class="collapsed-label">Terminal</span>
+          <span class="terminal-bar-label">Terminal</span>
+          <ChevronUp size={14} />
         </button>
+      {:else}
+        <PaneHandle direction="horizontal" onDrag={handleTerminalResize} />
       {/if}
+      <div
+        class="pane terminal-pane"
+        class:no-motion={prefersReducedMotion}
+        class:terminal-collapsed={ui.collapsed.terminal}
+        style="height: {ui.collapsed.terminal ? 0 : ui.terminalHeight}px;"
+      >
+        <Terminal />
+      </div>
     </div>
   </div>
 
   <!-- AI Output (right sidebar) -->
   {#if !ui.collapsed.aiOutput}
     <PaneHandle direction="vertical" onDrag={handleAIOutputResize} />
-    <div class="pane ai-output-pane" style="width: {ui.aiOutputWidth}px;">
+    <div
+      class="pane ai-output-pane"
+      class:no-motion={prefersReducedMotion}
+      style="width: {ui.aiOutputWidth}px;"
+    >
       <AIOutput />
     </div>
   {:else}
     <button
       class="collapsed-pane-btn vertical right"
-      onclick={() => uiStore.toggleCollapse('aiOutput')}
-      title="Expand AI Output"
+      onclick={() => { setAIPanelManualOverride(); uiStore.toggleCollapse('aiOutput'); }}
+      title={aiHasResult ? 'AI Output (has results - click to expand)' : 'Expand AI Output'}
     >
+      {#if aiHasResult}
+        <span class="ai-indicator"><Sparkles size={12} /></span>
+      {/if}
       <span class="collapsed-label">AI Output</span>
     </button>
   {/if}
@@ -125,10 +159,91 @@
 
   .terminal-pane {
     flex-shrink: 0;
+    animation: terminal-slide-up 200ms ease-out;
+  }
+
+  .terminal-pane.no-motion {
+    animation: none;
+  }
+
+  .terminal-pane.terminal-collapsed {
+    height: 0 !important;
+    overflow: hidden;
+    animation: none;
+  }
+
+  @keyframes terminal-slide-up {
+    from {
+      height: 0;
+      opacity: 0.5;
+    }
+  }
+
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 28px;
+    width: 100%;
+    padding: 0 12px;
+    background: var(--header-bg, #252525);
+    border: none;
+    border-top: 1px solid var(--border-color, #333);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+  }
+
+  .terminal-bar:hover {
+    background: var(--hover-bg, #333);
+  }
+
+  .terminal-bar-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #888);
+  }
+
+  .terminal-bar :global(svg) {
+    color: var(--text-muted, #888);
   }
 
   .ai-output-pane {
     flex-shrink: 0;
+    animation: ai-slide-in 200ms ease-out;
+  }
+
+  .ai-output-pane.no-motion {
+    animation: none;
+  }
+
+  @keyframes ai-slide-in {
+    from {
+      width: 0 !important;
+      opacity: 0.5;
+    }
+  }
+
+  .ai-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-color, #0078d4);
+    margin-bottom: 4px;
+    animation: indicator-pulse 2s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ai-indicator {
+      animation: none;
+    }
+  }
+
+  @keyframes indicator-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
   }
 
   .collapsed-pane-btn {
@@ -155,12 +270,6 @@
   .collapsed-pane-btn.vertical.right {
     border-right: none;
     border-left: 1px solid var(--border-color, #333);
-  }
-
-  .collapsed-pane-btn.horizontal {
-    height: 24px;
-    width: 100%;
-    border-top: 1px solid var(--border-color, #333);
   }
 
   .collapsed-label {

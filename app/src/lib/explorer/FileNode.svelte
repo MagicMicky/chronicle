@@ -7,16 +7,32 @@
   export let depth: number = 0;
   export let currentFilePath: string | null = null;
   export let onFileClick: (path: string) => void;
+  export let onContextMenu: (e: MouseEvent, node: FileNode) => void = () => {};
   export let getStatus: (path: string) => FileStatus = () => 'clean';
+  export let renamingPath: string | null = null;
+  export let onRenameSubmit: (oldPath: string, newName: string) => void = () => {};
+  export let onRenameCancel: () => void = () => {};
 
-  let expanded = depth === 0; // Expand root level by default
+  let expanded = depth === 0;
+  let renameInput: HTMLInputElement;
+  let renameValue = '';
 
   $: isSelected = node.path === currentFilePath;
   $: isDirectory = node.type === 'directory';
   $: indent = depth * 16;
   $: status = isDirectory ? 'clean' : getStatus(node.path);
+  $: isRenaming = renamingPath === node.path;
+
+  $: if (isRenaming && renameInput) {
+    // Strip .md extension for editing
+    const name = node.name;
+    renameValue = name.endsWith('.md') ? name.slice(0, -3) : name;
+    renameInput.value = renameValue;
+    renameInput.select();
+  }
 
   function handleClick() {
+    if (isRenaming) return;
     if (isDirectory) {
       expanded = !expanded;
     } else {
@@ -30,6 +46,27 @@
       handleClick();
     }
   }
+
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, node);
+  }
+
+  function handleRenameKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const input = e.target as HTMLInputElement;
+      onRenameSubmit(node.path, input.value.trim());
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onRenameCancel();
+    }
+  }
+
+  function handleRenameBlur() {
+    onRenameCancel();
+  }
 </script>
 
 <div class="file-node">
@@ -40,6 +77,7 @@
     style="padding-left: {indent + 8}px"
     on:click={handleClick}
     on:keydown={handleKeydown}
+    on:contextmenu={handleContextMenu}
     title={node.path}
   >
     <span class="icon">
@@ -55,7 +93,17 @@
         <span class="file-icon"><FileText size={14} /></span>
       {/if}
     </span>
-    <span class="name">{node.name}</span>
+    {#if isRenaming}
+      <input
+        class="rename-input"
+        bind:this={renameInput}
+        on:keydown={handleRenameKeydown}
+        on:blur={handleRenameBlur}
+        on:click|stopPropagation
+      />
+    {:else}
+      <span class="name">{node.name}</span>
+    {/if}
     {#if status !== 'clean'}
       <span
         class="status-dot"
@@ -74,7 +122,11 @@
           depth={depth + 1}
           {currentFilePath}
           {onFileClick}
+          {onContextMenu}
           {getStatus}
+          {renamingPath}
+          {onRenameSubmit}
+          {onRenameCancel}
         />
       {/each}
     </div>
@@ -144,6 +196,19 @@
     flex: 1;
   }
 
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    padding: 1px 4px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--pane-bg, #1e1e1e);
+    color: var(--text-primary, #fff);
+    border: 1px solid var(--accent-color, #0078d4);
+    border-radius: 3px;
+    outline: none;
+  }
+
   .status-dot {
     width: 8px;
     height: 8px;
@@ -160,7 +225,6 @@
     background-color: var(--info-color, #e89e4c);
   }
 
-  /* When selected, make dots more visible */
   .node-row.selected .status-dot.unsaved {
     background-color: #ffd700;
   }

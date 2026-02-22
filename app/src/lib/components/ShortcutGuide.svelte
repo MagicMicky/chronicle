@@ -15,19 +15,29 @@
 
   const shortcuts = [
     {
-      category: 'Navigation',
+      category: 'Files',
       items: [
+        { keys: 'Cmd+N', action: 'New Note' },
+        { keys: 'Cmd+T', action: "Today's Note" },
+        { keys: 'Cmd+W', action: 'Close Note' },
+        { keys: 'Cmd+S', action: 'Save' },
         { keys: 'Cmd+P', action: 'Quick File Jump' },
-        { keys: 'Cmd+B', action: 'Toggle Explorer' },
-        { keys: 'Cmd+Shift+A', action: 'Toggle AI Output' },
-        { keys: 'Cmd+`', action: 'Focus Terminal' },
+        { keys: 'Cmd+Shift+F', action: 'Search Notes' },
       ],
     },
     {
-      category: 'Notes',
+      category: 'AI',
       items: [
-        { keys: 'Cmd+N', action: 'New Note' },
+        { keys: 'Cmd+Enter', action: 'Process Note' },
         { keys: 'Cmd+Shift+P', action: 'Process Note' },
+      ],
+    },
+    {
+      category: 'Layout',
+      items: [
+        { keys: 'Cmd+B / Cmd+\\', action: 'Toggle Sidebar' },
+        { keys: 'Cmd+J / Cmd+Shift+A', action: 'Toggle AI Panel' },
+        { keys: 'Cmd+`', action: 'Toggle Terminal' },
       ],
     },
     {
@@ -41,7 +51,7 @@
     },
     {
       category: 'Help',
-      items: [{ keys: 'Cmd+/', action: 'Show shortcuts' }],
+      items: [{ keys: 'Cmd+/', action: 'Show Shortcuts' }],
     },
   ];
 </script>

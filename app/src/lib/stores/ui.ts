@@ -19,8 +19,8 @@ const defaultState: PaneState = {
   terminalHeight: 300, // ~18 rows at 13px font - comfortable for interactive use
   collapsed: {
     explorer: false,
-    aiOutput: false,
-    terminal: false,
+    aiOutput: true,
+    terminal: true,
   },
 };
 
@@ -83,6 +83,11 @@ function createUIStore() {
       updateAndPersist((state) => ({
         ...state,
         collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] },
+      })),
+    setCollapsed: (pane: 'explorer' | 'aiOutput' | 'terminal', collapsed: boolean) =>
+      updateAndPersist((state) => ({
+        ...state,
+        collapsed: { ...state.collapsed, [pane]: collapsed },
       })),
     reset: () => {
       set(defaultState);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
   import { currentWorkspace } from '$lib/stores/workspace';
@@ -129,6 +130,11 @@
       // Wire up data flow: PTY -> Terminal
       pty.onData((data: string) => {
         terminal?.write(data);
+        // Auto-expand terminal when output arrives while collapsed
+        const ui = get(uiStore);
+        if (ui.collapsed.terminal) {
+          uiStore.setCollapsed('terminal', false);
+        }
       });
 
       // Handle PTY exit

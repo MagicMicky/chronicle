@@ -58,6 +58,8 @@ pub fn run() {
             commands::generate_note_path,
             commands::get_default_shell,
             commands::read_processed_file,
+            commands::delete_file,
+            commands::create_folder,
             // Tracking commands (simplified)
             commands::get_tracker_info,
             commands::start_tracking,
@@ -74,6 +76,8 @@ pub fn run() {
             // Processing commands
             commands::trigger_processing,
             commands::get_mcp_status,
+            // Search commands
+            commands::search_notes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

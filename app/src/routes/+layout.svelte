@@ -2,11 +2,12 @@
   import '../app.css';
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
-  import { initAIEventListeners, triggerProcessing } from '$lib/stores/aiOutput';
-  import { hasOpenNote, isNoteDirty, noteStore, loadLastSession, saveLastSession } from '$lib/stores/note';
-  import { workspaceStore } from '$lib/stores/workspace';
+  import { initAIEventListeners, triggerProcessing, setAIPanelManualOverride } from '$lib/stores/aiOutput';
+  import { hasOpenNote, isNoteDirty, noteStore, loadLastSession, saveLastSession, openDailyNote } from '$lib/stores/note';
+  import { workspaceStore, currentWorkspace, hasWorkspace } from '$lib/stores/workspace';
   import { sessionStore } from '$lib/stores/session';
   import { autoSaveStore } from '$lib/stores/autosave';
+  import { toast } from '$lib/stores/toast';
   import { getInvoke } from '$lib/utils/tauri';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
@@ -14,6 +15,7 @@
   import Toasts from '$lib/layout/Toasts.svelte';
   import ShortcutGuide from '$lib/components/ShortcutGuide.svelte';
   import QuickOpen from '$lib/components/QuickOpen.svelte';
+  import SearchModal from '$lib/components/SearchModal.svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -24,6 +26,7 @@
   let { children }: Props = $props();
   let showShortcuts = $state(false);
   let showQuickOpen = $state(false);
+  let showSearch = $state(false);
 
   async function restoreLastSession() {
     const session = loadLastSession();
@@ -137,9 +140,10 @@
         e.preventDefault();
         uiStore.toggleCollapse('explorer');
       }
-      // Cmd/Ctrl + Shift + A: Toggle AI Output
+      // Cmd/Ctrl + Shift + A: Toggle AI Output (manual override)
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'A') {
         e.preventDefault();
+        setAIPanelManualOverride();
         uiStore.toggleCollapse('aiOutput');
       }
       // Cmd/Ctrl + P: Quick file jump
@@ -154,22 +158,86 @@
           triggerProcessing();
         }
       }
+      // Cmd/Ctrl + T: Open today's daily note
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 't') {
+        e.preventDefault();
+        const workspace = get(currentWorkspace);
+        if (workspace) {
+          openDailyNote(workspace.path).catch((err) => {
+            console.error('Failed to open daily note:', err);
+            toast.error('Failed to open daily note');
+          });
+        } else {
+          toast.warning('Open a workspace first');
+        }
+      }
+      // Cmd/Ctrl + W: Close current note (save first, stop session)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') {
+        e.preventDefault();
+        if (get(hasOpenNote)) {
+          (async () => {
+            try {
+              if (get(isNoteDirty)) {
+                await autoSaveStore.saveNow();
+              }
+              await sessionStore.stopTracking();
+              noteStore.closeNote();
+            } catch (err) {
+              console.error('Failed to close note:', err);
+            }
+          })();
+        }
+      }
+      // Cmd/Ctrl + Enter: Process current note (alias for Cmd+Shift+P)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (get(hasOpenNote)) {
+          triggerProcessing();
+        }
+      }
+      // Cmd/Ctrl + N: New note
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') {
+        e.preventDefault();
+        if (get(hasWorkspace)) {
+          noteStore.newNote();
+        } else {
+          toast.warning('Open a workspace first');
+        }
+      }
+      // Cmd/Ctrl + \: Toggle sidebar (alias for Cmd+B)
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault();
+        uiStore.toggleCollapse('explorer');
+      }
+      // Cmd/Ctrl + J: Toggle AI panel (alias for Cmd+Shift+A, manual override)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'j') {
+        e.preventDefault();
+        setAIPanelManualOverride();
+        uiStore.toggleCollapse('aiOutput');
+      }
+      // Cmd/Ctrl + Shift + F: Search across notes
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'F') {
+        e.preventDefault();
+        if (get(hasWorkspace)) {
+          showSearch = !showSearch;
+        }
+      }
       // Cmd/Ctrl + /: Toggle shortcut guide
       if ((e.metaKey || e.ctrlKey) && e.key === '/') {
         e.preventDefault();
         showShortcuts = !showShortcuts;
       }
-      // Cmd/Ctrl + `: Focus Terminal (expand if collapsed)
+      // Cmd/Ctrl + `: Toggle Terminal (expand/collapse)
       if ((e.metaKey || e.ctrlKey) && e.key === '`') {
         e.preventDefault();
         const ui = get(uiStore);
+        uiStore.toggleCollapse('terminal');
         if (ui.collapsed.terminal) {
-          uiStore.toggleCollapse('terminal');
+          // Was collapsed, now expanding - request focus after render
+          requestAnimationFrame(() => {
+            terminalStore.requestFocus();
+          });
         }
-        // Request focus after a tick (allows terminal to render if just expanded)
-        requestAnimationFrame(() => {
-          terminalStore.requestFocus();
-        });
       }
     }
 
@@ -194,6 +262,7 @@
 
 <ShortcutGuide bind:show={showShortcuts} />
 <QuickOpen bind:show={showQuickOpen} />
+<SearchModal bind:show={showSearch} />
 <Toasts />
 
 <style>

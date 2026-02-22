@@ -103,6 +103,37 @@ pub fn get_default_shell() -> String {
     }
 }
 
+#[tauri::command]
+pub async fn delete_file(
+    path: String,
+    state: State<'_, SharedAppState>,
+) -> Result<(), String> {
+    let workspace = get_workspace_path(&state).await?;
+    let workspace_path = Path::new(&workspace);
+    let target_path = Path::new(&path);
+
+    // Validate path is within workspace
+    let validated = storage::validate_workspace_path(workspace_path, target_path)?;
+
+    // Move to OS trash
+    trash::delete(&validated).map_err(|e| format!("Failed to delete file: {}", e))
+}
+
+#[tauri::command]
+pub async fn create_folder(
+    workspace_path: String,
+    folder_path: String,
+) -> Result<(), String> {
+    let ws = Path::new(&workspace_path);
+    let target = Path::new(&folder_path);
+
+    // Validate path is within workspace
+    let validated = storage::validate_workspace_path(ws, target)?;
+
+    std::fs::create_dir_all(&validated)
+        .map_err(|e| format!("Failed to create folder: {}", e))
+}
+
 /// Parsed AI output structure for M6 UI display
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
