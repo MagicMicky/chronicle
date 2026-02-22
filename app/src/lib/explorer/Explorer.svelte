@@ -11,10 +11,11 @@
     recentWorkspaces,
     type FileNode,
   } from '$lib/stores/workspace';
-  import { noteStore, currentNote, isNoteDirty } from '$lib/stores/note';
+  import { noteStore, currentNote, isNoteDirty, saveLastSession } from '$lib/stores/note';
   import { sessionStore } from '$lib/stores/session';
   import { fileStatusStore, fileStatuses } from '$lib/stores/fileStatus';
   import { autoSaveStore } from '$lib/stores/autosave';
+  import { toast } from '$lib/stores/toast';
   import { pickFolder } from '$lib/utils/dialog';
   import FileTree from './FileTree.svelte';
   import { FolderOpen, X, Minus } from 'lucide-svelte';
@@ -24,6 +25,7 @@
   let isOpen = false;
   let isLoading = false;
   let workspaceName = '';
+  let wsPath = '';
   let recent: { path: string; name: string }[] = [];
   let getStatus: (path: string) => 'clean' | 'unsaved' | 'uncommitted' = () => 'clean';
   let isDirty = false;
@@ -36,6 +38,7 @@
   workspaceLoading.subscribe((l) => (isLoading = l));
   currentWorkspace.subscribe((w) => {
     workspaceName = w?.name ?? '';
+    wsPath = w?.path ?? '';
     // Refresh git status when workspace changes
     if (w) {
       fileStatusStore.refresh();
@@ -89,6 +92,11 @@
       const content = await invoke<string>('read_file', { path });
       noteStore.openNote(path, content);
 
+      // Persist last session for state restoration
+      if (wsPath) {
+        saveLastSession(wsPath, path);
+      }
+
       // Start tracking session for this file
       await sessionStore.startTracking(path);
 
@@ -96,6 +104,7 @@
       await fileStatusStore.refresh();
     } catch (e) {
       console.error('Failed to open file:', e);
+      toast.error('Failed to open file');
     }
   }
 

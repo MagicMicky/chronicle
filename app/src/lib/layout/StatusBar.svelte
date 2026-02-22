@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { saveStatus, type SaveStatus } from '$lib/stores/autosave';
+  import { saveStatus, lastSaved, saveError, type SaveStatus } from '$lib/stores/autosave';
   import { noteTitle, isNoteDirty, hasOpenNote, noteContent, currentNote } from '$lib/stores/note';
   import { hasWorkspace, currentWorkspace } from '$lib/stores/workspace';
-  import { sessionDuration, formatDuration, isTracking } from '$lib/stores/session';
+
   import {
     isAIProcessing,
     processingStyle,
     triggerProcessing,
     PROCESSING_STYLES,
+    isMcpConnected,
   } from '$lib/stores/aiOutput';
   import { fileStatuses } from '$lib/stores/fileStatus';
-  import { Sun, Moon } from 'lucide-svelte';
+  import { Sun, Moon, Check, Loader2, Pencil, AlertTriangle } from 'lucide-svelte';
+  import { onDestroy } from 'svelte';
 
   let theme = 'dark';
 
@@ -32,19 +34,49 @@
   $: noteOpen = $hasOpenNote;
   $: workspaceOpen = $hasWorkspace;
   $: workspaceName = $currentWorkspace?.name ?? '';
-  $: duration = $sessionDuration;
-  $: tracking = $isTracking;
   $: processing = $isAIProcessing;
   $: selectedStyle = $processingStyle;
   $: content = $noteContent;
   $: note = $currentNote;
   $: statuses = $fileStatuses;
+  $: saved = $lastSaved;
+  $: error = $saveError;
+  $: mcpConnected = $isMcpConnected;
 
-  // Reactive status text
-  $: statusText = getStatusText(status, dirty, noteOpen);
+  // Relative time display
+  let relativeTime = '';
+  let relativeTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Duration display text
-  $: durationDisplay = tracking && duration > 0 ? `(${formatDuration(duration)})` : '';
+  function formatRelativeTime(date: Date | null): string {
+    if (!date) return '';
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 10) return 'just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  }
+
+  $: if (saved) {
+    relativeTime = formatRelativeTime(saved);
+  } else {
+    relativeTime = '';
+  }
+
+  // Update relative time every 30s
+  relativeTimer = setInterval(() => {
+    if (saved) {
+      relativeTime = formatRelativeTime(saved);
+    }
+  }, 30000);
+
+  onDestroy(() => {
+    if (relativeTimer) clearInterval(relativeTimer);
+  });
+
+  // Effective display status: use 'dirty' from store, or infer from isDirty flag
+  $: displayStatus = getDisplayStatus(status, dirty, noteOpen);
 
   // Word count for current note
   $: wordCount = noteOpen && content
@@ -54,13 +86,24 @@
   // Git status for current file
   $: gitStatus = note?.path ? statuses.getStatus(note.path) : 'clean';
 
-  function getStatusText(s: SaveStatus, isDirty: boolean, hasNote: boolean): string {
-    if (s === 'saving') return 'Saving...';
-    if (s === 'saved') return 'Saved';
-    if (s === 'error') return 'Save failed';
-    if (isDirty) return 'Unsaved changes';
-    if (hasNote) return 'Ready';
-    return 'No file open';
+  function getDisplayStatus(s: SaveStatus, isDirty: boolean, hasNote: boolean): SaveStatus | 'none' {
+    if (!hasNote) return 'none';
+    if (s === 'saving') return 'saving';
+    if (s === 'error') return 'error';
+    if (s === 'dirty' || isDirty) return 'dirty';
+    if (s === 'saved') return 'saved';
+    return 'saved'; // idle with a note open = saved
+  }
+
+  function getStatusText(s: SaveStatus | 'none'): string {
+    switch (s) {
+      case 'saving': return 'Saving...';
+      case 'saved': return 'Saved';
+      case 'error': return 'Save failed';
+      case 'dirty': return 'Edited';
+      case 'none': return '';
+      default: return '';
+    }
   }
 
   function handleProcess() {
@@ -84,9 +127,6 @@
           title="Git: {gitStatus}"
         ></span>
         {title}
-        {#if durationDisplay}
-          <span class="duration-info">{durationDisplay}</span>
-        {/if}
         {#if wordCount > 0}
           <span class="word-count">{wordCount} words</span>
         {/if}
@@ -98,9 +138,30 @@
     </span>
   </div>
   <div class="status-center">
-    <span class="status-item" class:saving={status === 'saving'} class:error={status === 'error'} class:dirty={dirty}>
-      {statusText}
-    </span>
+    {#if displayStatus !== 'none'}
+      <span
+        class="status-item save-indicator"
+        class:saving={displayStatus === 'saving'}
+        class:saved={displayStatus === 'saved'}
+        class:error={displayStatus === 'error'}
+        class:dirty={displayStatus === 'dirty'}
+        title={displayStatus === 'error' && error ? error : ''}
+      >
+        {#if displayStatus === 'saving'}
+          <Loader2 size={12} class="spin-icon" />
+        {:else if displayStatus === 'saved'}
+          <Check size={12} />
+        {:else if displayStatus === 'dirty'}
+          <Pencil size={12} />
+        {:else if displayStatus === 'error'}
+          <AlertTriangle size={12} />
+        {/if}
+        {getStatusText(displayStatus)}
+        {#if displayStatus === 'saved' && relativeTime}
+          <span class="last-saved">{relativeTime}</span>
+        {/if}
+      </span>
+    {/if}
   </div>
   <div class="status-right">
     {#if noteOpen}
@@ -133,6 +194,13 @@
         </button>
       </div>
     {/if}
+    <span
+      class="mcp-status"
+      class:connected={mcpConnected}
+      class:disconnected={!mcpConnected}
+      title={mcpConnected ? 'Claude Code integration: connected' : 'Claude Code integration: disconnected'}
+      aria-label={mcpConnected ? 'MCP connected' : 'MCP disconnected'}
+    ></span>
     <button
       class="theme-toggle"
       on:click={toggleTheme}
@@ -207,16 +275,35 @@
     gap: 4px;
   }
 
-  .status-item.saving {
+  .save-indicator {
+    gap: 4px;
+  }
+
+  .save-indicator.saving {
     color: var(--accent-color, #0078d4);
   }
 
-  .status-item.error {
-    color: var(--error-color, #f44336);
+  .save-indicator.saved {
+    color: #4caf50;
   }
 
-  .status-item.dirty {
+  .save-indicator.error {
+    color: var(--error-color, #f44336);
+    cursor: help;
+  }
+
+  .save-indicator.dirty {
     color: var(--warning-color, #cca700);
+  }
+
+  .last-saved {
+    opacity: 0.7;
+    margin-left: 4px;
+    font-size: 11px;
+  }
+
+  .save-indicator :global(.spin-icon) {
+    animation: status-spin 0.8s linear infinite;
   }
 
   .git-dot {
@@ -239,11 +326,6 @@
     margin-left: 8px;
     opacity: 0.7;
     font-size: 11px;
-  }
-
-  .duration-info {
-    margin-left: 8px;
-    opacity: 0.7;
   }
 
   .process-controls {
@@ -312,6 +394,22 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .mcp-status {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .mcp-status.connected {
+    background-color: #4caf50;
+  }
+
+  .mcp-status.disconnected {
+    background-color: #666;
   }
 
   .theme-toggle {

@@ -15,10 +15,17 @@ let requestId = 0;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_DELAY = 60000;
 
+/** Inactivity timeout: if no messages received for 60s, proactively reconnect */
+const INACTIVITY_TIMEOUT_MS = 60_000;
+let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
 const pendingRequests = new Map<
   string,
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
 >();
+
+/** Queue of push messages that failed to send while disconnected */
+const pendingPushes: Array<{ event: string; data: unknown }> = [];
 
 let pushHandler: ((event: string, data: unknown) => void) | null = null;
 let requestHandler: ((method: string, data: unknown) => void) | null = null;
@@ -62,6 +69,44 @@ export function setRequestHandler(
   requestHandler = handler;
 }
 
+function resetInactivityTimer(): void {
+  if (inactivityTimer !== null) {
+    clearTimeout(inactivityTimer);
+  }
+  inactivityTimer = setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.error(
+        "No messages received for 60s, reconnecting proactively..."
+      );
+      ws.close();
+      // close event will trigger reconnect
+    }
+  }, INACTIVITY_TIMEOUT_MS);
+}
+
+function clearInactivityTimer(): void {
+  if (inactivityTimer !== null) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
+}
+
+/** Flush any queued push messages after reconnecting */
+function flushPendingPushes(): void {
+  while (pendingPushes.length > 0) {
+    const msg = pendingPushes.shift()!;
+    if (isConnected()) {
+      const push: WsPush = { type: "push", event: msg.event, data: msg.data };
+      ws!.send(JSON.stringify(push));
+      console.error(`Flushed queued push: ${msg.event}`);
+    } else {
+      // Put it back if we disconnected mid-flush
+      pendingPushes.unshift(msg);
+      break;
+    }
+  }
+}
+
 export async function connect(): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
@@ -70,10 +115,13 @@ export async function connect(): Promise<void> {
       ws.on("open", () => {
         console.error("Connected to Chronicle app");
         reconnectAttempts = 0;
+        resetInactivityTimer();
+        flushPendingPushes();
         resolve();
       });
 
       ws.on("message", (data: WebSocket.Data) => {
+        resetInactivityTimer();
         try {
           const raw = JSON.parse(data.toString());
           const parsed = WsIncomingSchema.safeParse(raw);
@@ -103,9 +151,15 @@ export async function connect(): Promise<void> {
         }
       });
 
+      ws.on("ping", () => {
+        // ws library auto-responds with pong, just reset inactivity timer
+        resetInactivityTimer();
+      });
+
       ws.on("close", () => {
         console.error("Disconnected from Chronicle app");
         ws = null;
+        clearInactivityTimer();
         // Attempt reconnect with exponential backoff
         scheduleReconnect();
       });
@@ -134,7 +188,7 @@ function scheduleReconnect(): void {
   setTimeout(async () => {
     try {
       await connect();
-    } catch (e) {
+    } catch {
       // Will retry on next close event
     }
   }, delay);
@@ -145,6 +199,7 @@ export function isConnected(): boolean {
 }
 
 export function disconnect(): void {
+  clearInactivityTimer();
   if (ws) {
     ws.close();
     ws = null;
@@ -193,7 +248,8 @@ export async function getWorkspacePath(): Promise<string | null> {
 
 export function sendPush(event: string, data: unknown): void {
   if (!isConnected()) {
-    console.error("Cannot send push: not connected to Chronicle app");
+    pendingPushes.push({ event, data });
+    console.error(`Queued push (not connected): ${event}`);
     return;
   }
 

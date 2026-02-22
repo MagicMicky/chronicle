@@ -1,6 +1,36 @@
 import { writable, derived } from 'svelte/store';
 import { syncAppState } from './appState';
 
+const SESSION_KEY = 'chronicle:last-session';
+
+export interface LastSession {
+  workspacePath: string;
+  filePath: string;
+}
+
+export function saveLastSession(workspacePath: string, filePath: string) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ workspacePath, filePath }));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function loadLastSession(): LastSession | null {
+  try {
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.workspacePath && parsed.filePath) {
+        return parsed as LastSession;
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
+}
+
 export interface Note {
   path: string | null;
   content: string;

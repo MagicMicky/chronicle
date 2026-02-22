@@ -52,8 +52,14 @@ pub fn write_file_atomic(path: &Path, content: &str) -> Result<(), StorageError>
     fs::write(&temp_path, content)
         .map_err(|e| StorageError::WriteFailed(temp_path.display().to_string(), e))?;
 
-    fs::rename(&temp_path, path)
-        .map_err(|e| StorageError::WriteFailed(path.display().to_string(), e))
+    match fs::rename(&temp_path, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Best effort cleanup of temp file
+            let _ = fs::remove_file(&temp_path);
+            Err(StorageError::WriteFailed(path.display().to_string(), e))
+        }
+    }
 }
 
 pub fn file_exists(path: &Path) -> bool {

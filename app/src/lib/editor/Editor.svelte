@@ -19,6 +19,42 @@
   let currentIsDirty = false;
   let pendingContent: string | null = null;
   let themeObserver: MutationObserver | null = null;
+  let scrollSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+  let currentFilePath: string | null = null;
+
+  const SCROLL_KEY_PREFIX = 'chronicle:scroll:';
+
+  function saveScrollPosition() {
+    if (!editorView || !currentFilePath) return;
+    const scrollTop = editorView.scrollDOM.scrollTop;
+    try {
+      localStorage.setItem(SCROLL_KEY_PREFIX + currentFilePath, String(scrollTop));
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  function restoreScrollPosition() {
+    if (!editorView || !currentFilePath) return;
+    try {
+      const saved = localStorage.getItem(SCROLL_KEY_PREFIX + currentFilePath);
+      if (saved) {
+        const scrollTop = parseInt(saved, 10);
+        if (!isNaN(scrollTop)) {
+          requestAnimationFrame(() => {
+            editorView?.scrollDOM.scrollTo(0, scrollTop);
+          });
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  function debouncedSaveScroll() {
+    if (scrollSaveTimeout) clearTimeout(scrollSaveTimeout);
+    scrollSaveTimeout = setTimeout(saveScrollPosition, 500);
+  }
 
   // Detect current theme from data-theme attribute
   function getCurrentTheme(): 'light' | 'dark' {
@@ -57,8 +93,12 @@
       parent: editorContainer,
     });
 
+    // Listen for scroll events to persist scroll position
+    editorView.scrollDOM.addEventListener('scroll', debouncedSaveScroll);
+
     pendingContent = null;
     editorView.focus();
+    restoreScrollPosition();
   }
 
   // Update editor content from store (when opening a file)
@@ -117,6 +157,12 @@
 
     // Subscribe to note store
     unsubscribe = noteStore.subscribe((state) => {
+      const newPath = state.currentNote?.path ?? null;
+      if (newPath !== currentFilePath) {
+        // Save scroll position of the previous file before switching
+        saveScrollPosition();
+        currentFilePath = newPath;
+      }
       if (state.currentNote) {
         if (!editorView) {
           tryCreateEditor(state.currentNote.content);
@@ -139,7 +185,10 @@
   onDestroy(() => {
     if (unsubscribe) unsubscribe();
     themeObserver?.disconnect();
+    if (scrollSaveTimeout) clearTimeout(scrollSaveTimeout);
+    saveScrollPosition();
     if (editorView) {
+      editorView.scrollDOM.removeEventListener('scroll', debouncedSaveScroll);
       editorView.destroy();
       editorView = null;
     }

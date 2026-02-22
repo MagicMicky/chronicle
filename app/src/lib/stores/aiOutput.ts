@@ -2,6 +2,9 @@ import { writable, derived, get } from 'svelte/store';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 
+// MCP connection status store
+export const isMcpConnected = writable<boolean>(false);
+
 export interface ActionItem {
   text: string;
   owner: string | null;
@@ -148,16 +151,23 @@ export const PROCESSING_STYLES = [
   { value: 'structured', label: 'Structured' },
 ] as const;
 
-// Timeout for processing (30 seconds)
-const PROCESSING_TIMEOUT_MS = 30_000;
-let processingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+// Timeout waiting for MCP server acknowledgment (10 seconds)
+const ACK_TIMEOUT_MS = 10_000;
+let ackTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let processingAcknowledged = false;
 
-// Clear any active processing timeout
-function clearProcessingTimeout() {
-  if (processingTimeoutId !== null) {
-    clearTimeout(processingTimeoutId);
-    processingTimeoutId = null;
+// Clear any active ack timeout
+function clearAckTimeout() {
+  if (ackTimeoutId !== null) {
+    clearTimeout(ackTimeoutId);
+    ackTimeoutId = null;
   }
+}
+
+// Called when MCP server acknowledges the processing request
+export function handleProcessingStarted() {
+  processingAcknowledged = true;
+  clearAckTimeout();
 }
 
 // Trigger processing of the current note
@@ -166,20 +176,21 @@ export async function triggerProcessing(style?: string): Promise<void> {
 
   // Set processing state immediately
   aiOutputStore.setProcessing(true);
-  clearProcessingTimeout();
+  processingAcknowledged = false;
+  clearAckTimeout();
 
-  // Set a timeout so the UI doesn't get stuck if the MCP server is not connected
-  processingTimeoutId = setTimeout(() => {
-    if (get(isAIProcessing)) {
+  // Short timeout: if MCP server doesn't acknowledge within 10s, it's not connected
+  ackTimeoutId = setTimeout(() => {
+    if (get(isAIProcessing) && !processingAcknowledged) {
       aiOutputStore.setError('Processing timed out. Is the MCP server running?');
     }
-  }, PROCESSING_TIMEOUT_MS);
+  }, ACK_TIMEOUT_MS);
 
   try {
     await invoke('trigger_processing', { style: currentStyle });
     // The actual result/error will come via Tauri events (ai:processing-complete / ai:processing-error)
   } catch (err) {
-    clearProcessingTimeout();
+    clearAckTimeout();
     const errorMsg = err instanceof Error ? err.message : String(err);
     aiOutputStore.setError(errorMsg);
   }
@@ -188,6 +199,30 @@ export async function triggerProcessing(style?: string): Promise<void> {
 // Initialize Tauri event listeners for AI processing events
 export async function initAIEventListeners(): Promise<UnlistenFn[]> {
   const unlisteners: UnlistenFn[] = [];
+
+  // Fetch initial MCP connection status
+  try {
+    const connected = await invoke<boolean>('get_mcp_status');
+    isMcpConnected.set(connected);
+  } catch {
+    isMcpConnected.set(false);
+  }
+
+  // Listen for MCP connection state changes
+  unlisteners.push(
+    await listen<boolean>('mcp:connection-changed', (event) => {
+      console.log('MCP connection changed:', event.payload);
+      isMcpConnected.set(event.payload);
+    })
+  );
+
+  // Listen for processing started acknowledgment from MCP server
+  unlisteners.push(
+    await listen('ai:processing-started', () => {
+      console.log('Received ai:processing-started event');
+      handleProcessingStarted();
+    })
+  );
 
   // Listen for processing complete events
   unlisteners.push(
@@ -200,7 +235,7 @@ export async function initAIEventListeners(): Promise<UnlistenFn[]> {
       };
     }>('ai:processing-complete', (event) => {
       console.log('Received ai:processing-complete event:', event.payload);
-      clearProcessingTimeout();
+      clearAckTimeout();
       aiOutputStore.handleProcessingComplete(event.payload);
     })
   );
@@ -209,7 +244,7 @@ export async function initAIEventListeners(): Promise<UnlistenFn[]> {
   unlisteners.push(
     await listen<{ error: string }>('ai:processing-error', (event) => {
       console.log('Received ai:processing-error event:', event.payload);
-      clearProcessingTimeout();
+      clearAckTimeout();
       aiOutputStore.setError(event.payload.error);
     })
   );

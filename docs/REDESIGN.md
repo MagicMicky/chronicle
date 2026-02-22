@@ -352,7 +352,7 @@ Current shortcuts are minimal. Need:
 2. State restoration on launch (last file, pane sizes, scroll position)
 3. Unsaved changes warning on close
 4. Fix atomic write cleanup
-5. Move AI processing to Rust backend (direct Claude API)
+5. Fix MCP WebSocket reliability (heartbeat, message queue, startup race)
 6. Remove session timer from UI (keep silent tracking)
 7. Toast notification system for errors
 

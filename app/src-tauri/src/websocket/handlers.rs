@@ -84,6 +84,16 @@ async fn handle_push(message: WsMessage, app_state: Arc<RwLock<AppState>>) {
     tracing::info!("Received push event: {}", event);
 
     match event {
+        "processingStarted" => {
+            // MCP server acknowledged the processing request
+            let state = app_state.read().await;
+            if let Some(ref handle) = state.app_handle {
+                if let Err(e) = handle.emit("ai:processing-started", &data) {
+                    tracing::error!("Failed to emit ai:processing-started event: {}", e);
+                }
+            }
+            tracing::info!("Processing started acknowledgment received");
+        }
         "processingComplete" => {
             // Store the processing result in app state and emit event to frontend
             let mut state = app_state.write().await;

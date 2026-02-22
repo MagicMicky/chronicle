@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { getInvoke } from '$lib/utils/tauri';
 import { syncAppState } from './appState';
+import { toast } from './toast';
 
 export interface FileNode {
   name: string;
@@ -62,6 +63,7 @@ function createWorkspaceStore() {
         return info;
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
+        toast.error('Failed to open workspace');
         update((s) => ({ ...s, isLoading: false, error }));
         throw e;
       }

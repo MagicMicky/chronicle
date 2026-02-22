@@ -142,6 +142,11 @@
       });
 
       terminalStore.setSpawned(workspacePath);
+
+      // Auto-launch Claude Code after shell is ready
+      setTimeout(() => {
+        pty?.write('claude\n');
+      }, 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('[Terminal] Failed to spawn PTY:', error);

@@ -1,5 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
@@ -9,6 +10,12 @@ use super::handlers;
 
 /// Maximum WebSocket message size: 10MB
 const MAX_WS_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+
+/// Interval between heartbeat pings
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Timeout waiting for pong response
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Shared application state that tracks current file and workspace
 #[derive(Default)]
@@ -22,6 +29,8 @@ pub struct AppState {
     pub last_processing_error: Option<String>,
     /// Tauri app handle for emitting events to frontend
     pub app_handle: Option<tauri::AppHandle>,
+    /// Whether an MCP client is currently connected via WebSocket
+    pub is_mcp_connected: bool,
 }
 
 pub type SharedAppState = Arc<RwLock<AppState>>;
@@ -101,10 +110,25 @@ async fn handle_connection(
 
     tracing::debug!("WebSocket handshake successful");
 
+    // Mark MCP client as connected and emit event to frontend
+    {
+        let mut state = app_state.write().await;
+        state.is_mcp_connected = true;
+        if let Some(ref handle) = state.app_handle {
+            let _ = tauri::Emitter::emit(handle, "mcp:connection-changed", true);
+        }
+    }
+
     let (mut write, mut read) = ws_stream.split();
     let mut broadcast_rx = broadcast_tx.subscribe();
+    let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+    let mut awaiting_pong = false;
+    let mut pong_deadline: Option<tokio::time::Instant> = None;
 
     loop {
+        // Calculate the next timeout: either pong deadline or far future
+        let timeout_at = pong_deadline.unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(3600));
+
         tokio::select! {
             // Handle incoming messages from the MCP server
             msg = read.next() => {
@@ -123,6 +147,11 @@ async fn handle_connection(
                             tracing::error!("Failed to send pong: {}", e);
                             break;
                         }
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        tracing::debug!("Received pong from MCP client");
+                        awaiting_pong = false;
+                        pong_deadline = None;
                     }
                     Some(Ok(Message::Close(_))) => {
                         tracing::info!("WebSocket client disconnected");
@@ -149,37 +178,57 @@ async fn handle_connection(
                     }
                 }
             }
+            // Send periodic heartbeat pings
+            _ = heartbeat_interval.tick() => {
+                if awaiting_pong {
+                    // Already waiting for a pong, skip this tick
+                    continue;
+                }
+                tracing::debug!("Sending heartbeat ping to MCP client");
+                if let Err(e) = write.send(Message::Ping(vec![])).await {
+                    tracing::error!("Failed to send heartbeat ping: {}", e);
+                    break;
+                }
+                awaiting_pong = true;
+                pong_deadline = Some(tokio::time::Instant::now() + HEARTBEAT_TIMEOUT);
+            }
+            // Check for pong timeout
+            _ = tokio::time::sleep_until(timeout_at) => {
+                if awaiting_pong {
+                    tracing::warn!("MCP client did not respond to heartbeat ping, closing connection");
+                    break;
+                }
+            }
         }
     }
 
-    tracing::debug!("WebSocket connection handler finished");
+    // Mark MCP client as disconnected and emit event to frontend
+    {
+        let mut state = app_state.write().await;
+        state.is_mcp_connected = false;
+        if let Some(ref handle) = state.app_handle {
+            let _ = tauri::Emitter::emit(handle, "mcp:connection-changed", false);
+        }
+    }
+
+    tracing::info!("WebSocket connection handler finished, MCP client disconnected");
 }
 
-/// Start the WebSocket server in a background task
+/// Start the WebSocket server in a background task using Tauri's async runtime
 pub fn start_ws_server(port: u16, app_state: SharedAppState) -> broadcast::Sender<String> {
     let (broadcast_tx, _) = broadcast::channel(100);
     let tx_clone = broadcast_tx.clone();
 
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                tracing::error!("Failed to create tokio runtime for WebSocket server: {}", e);
-                return;
-            }
+    tauri::async_runtime::spawn(async move {
+        let server = WsServer {
+            port,
+            app_state,
+            broadcast_tx: tx_clone,
         };
 
-        rt.block_on(async {
-            let server = WsServer {
-                port,
-                app_state,
-                broadcast_tx: tx_clone,
-            };
-
-            if let Err(e) = server.start().await {
-                tracing::error!("WebSocket server error: {}", e);
-            }
-        });
+        if let Err(e) = server.start().await {
+            tracing::error!("WebSocket server error: {}", e);
+        }
     });
 
     broadcast_tx

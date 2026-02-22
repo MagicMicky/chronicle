@@ -11,6 +11,8 @@ export interface PaneState {
   };
 }
 
+const STORAGE_KEY = 'chronicle:ui-state';
+
 const defaultState: PaneState = {
   explorerWidth: 250,
   aiOutputWidth: 350,
@@ -22,23 +24,70 @@ const defaultState: PaneState = {
   },
 };
 
+function loadState(): PaneState {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        explorerWidth: parsed.explorerWidth ?? defaultState.explorerWidth,
+        aiOutputWidth: parsed.aiOutputWidth ?? defaultState.aiOutputWidth,
+        terminalHeight: parsed.terminalHeight ?? defaultState.terminalHeight,
+        collapsed: {
+          explorer: parsed.collapsed?.explorer ?? defaultState.collapsed.explorer,
+          aiOutput: parsed.collapsed?.aiOutput ?? defaultState.collapsed.aiOutput,
+          terminal: parsed.collapsed?.terminal ?? defaultState.collapsed.terminal,
+        },
+      };
+    }
+  } catch {
+    // Ignore parse errors, use defaults
+  }
+  return defaultState;
+}
+
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function persistState(state: PaneState) {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // Ignore storage errors
+    }
+  }, 200);
+}
+
 function createUIStore() {
-  const { subscribe, set, update } = writable<PaneState>(defaultState);
+  const initialState = loadState();
+  const { subscribe, set, update } = writable<PaneState>(initialState);
+
+  function updateAndPersist(updater: (state: PaneState) => PaneState) {
+    update((state) => {
+      const next = updater(state);
+      persistState(next);
+      return next;
+    });
+  }
 
   return {
     subscribe,
     setExplorerWidth: (width: number) =>
-      update((state) => ({ ...state, explorerWidth: Math.max(150, Math.min(500, width)) })),
+      updateAndPersist((state) => ({ ...state, explorerWidth: Math.max(150, Math.min(500, width)) })),
     setAIOutputWidth: (width: number) =>
-      update((state) => ({ ...state, aiOutputWidth: Math.max(200, Math.min(600, width)) })),
+      updateAndPersist((state) => ({ ...state, aiOutputWidth: Math.max(200, Math.min(600, width)) })),
     setTerminalHeight: (height: number) =>
-      update((state) => ({ ...state, terminalHeight: Math.max(150, Math.min(500, height)) })),
+      updateAndPersist((state) => ({ ...state, terminalHeight: Math.max(150, Math.min(500, height)) })),
     toggleCollapse: (pane: 'explorer' | 'aiOutput' | 'terminal') =>
-      update((state) => ({
+      updateAndPersist((state) => ({
         ...state,
         collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] },
       })),
-    reset: () => set(defaultState),
+    reset: () => {
+      set(defaultState);
+      persistState(defaultState);
+    },
   };
 }
 

@@ -1,5 +1,6 @@
 use crate::{SharedAppState, WsBroadcastState};
 use tauri::State;
+use uuid::Uuid;
 
 /// Trigger AI processing of the current note via the MCP server.
 /// Sends a WebSocket request to connected MCP clients to process the current file.
@@ -9,8 +10,14 @@ pub async fn trigger_processing(
     ws_broadcast: State<'_, WsBroadcastState>,
     style: Option<String>,
 ) -> Result<(), String> {
-    // Validate that a file is currently open
     let state = app_state.read().await;
+
+    // Check if MCP server is connected
+    if !state.is_mcp_connected {
+        return Err("MCP server is not connected. Start Claude Code with the Chronicle MCP server configured.".to_string());
+    }
+
+    // Validate that a file is currently open
     if state.current_file_path.is_none() {
         return Err("No file currently open. Open a note first.".to_string());
     }
@@ -19,7 +26,7 @@ pub async fn trigger_processing(
     let processing_style = style.unwrap_or_else(|| "standard".to_string());
 
     // Build the request message for the MCP server
-    let request_id = format!("trigger-{}", uuid_v4());
+    let request_id = format!("trigger-{}", Uuid::new_v4());
     let message = serde_json::json!({
         "type": "request",
         "id": request_id,
@@ -47,15 +54,4 @@ pub async fn trigger_processing(
     );
 
     Ok(())
-}
-
-/// Generate a simple UUID v4 (random) without external dependency
-fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let nanos = now.as_nanos();
-    let random_part: u64 = (nanos as u64) ^ (nanos.wrapping_shr(64) as u64);
-    format!("{:016x}-{:04x}", random_part, std::process::id() & 0xFFFF)
 }

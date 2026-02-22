@@ -40,6 +40,13 @@ pub fn get_ws_port() -> u16 {
     9847
 }
 
+/// Check if the MCP server is currently connected via WebSocket
+#[tauri::command]
+pub async fn get_mcp_status(state: State<'_, SharedAppState>) -> Result<bool, String> {
+    let app_state = state.read().await;
+    Ok(app_state.is_mcp_connected)
+}
+
 #[derive(Serialize)]
 pub struct ProcessingResult {
     pub result: Option<serde_json::Value>,

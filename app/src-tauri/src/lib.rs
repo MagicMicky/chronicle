@@ -73,6 +73,7 @@ pub fn run() {
             commands::get_processing_result,
             // Processing commands
             commands::trigger_processing,
+            commands::get_mcp_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

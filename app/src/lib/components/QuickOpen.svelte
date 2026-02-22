@@ -1,10 +1,11 @@
 <script lang="ts">
   import { Search } from 'lucide-svelte';
   import { workspaceFiles, currentWorkspace, type FileNode } from '$lib/stores/workspace';
-  import { noteStore, isNoteDirty } from '$lib/stores/note';
+  import { noteStore, isNoteDirty, saveLastSession } from '$lib/stores/note';
   import { sessionStore } from '$lib/stores/session';
   import { fileStatusStore } from '$lib/stores/fileStatus';
   import { autoSaveStore } from '$lib/stores/autosave';
+  import { toast } from '$lib/stores/toast';
   import { getInvoke } from '$lib/utils/tauri';
 
   interface Props {
@@ -91,6 +92,11 @@
       const content = await invoke<string>('read_file', { path: file.path });
       noteStore.openNote(file.path, content);
 
+      // Persist last session for state restoration
+      if (wsPath) {
+        saveLastSession(wsPath, file.path);
+      }
+
       // Start tracking session for this file
       await sessionStore.startTracking(file.path);
 
@@ -98,6 +104,7 @@
       await fileStatusStore.refresh();
     } catch (e) {
       console.error('Failed to open file:', e);
+      toast.error('Failed to open file');
     }
   }
 

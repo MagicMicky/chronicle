@@ -1,7 +1,8 @@
-import { writable, derived, get } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { getInvoke } from '$lib/utils/tauri';
 import { noteTitle } from './note';
 import { currentWorkspace } from './workspace';
+import { toast } from './toast';
 
 export interface TrackerInfo {
   note_path: string;
@@ -23,35 +24,6 @@ const defaultState: SessionStoreState = {
 
 function createSessionStore() {
   const { subscribe, set, update } = writable<SessionStoreState>(defaultState);
-  let durationUpdateInterval: ReturnType<typeof setInterval> | null = null;
-
-  const refreshTrackerInfo = async () => {
-    try {
-      const invoke = await getInvoke();
-      const info = await invoke<TrackerInfo | null>('get_tracker_info');
-      update((s) => ({ ...s, trackerInfo: info, error: null }));
-    } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
-      console.error('[Session] Failed to get tracker info:', error);
-      update((s) => ({ ...s, error }));
-    }
-  };
-
-  // Update duration display every minute
-  const startDurationUpdates = () => {
-    if (durationUpdateInterval) return;
-
-    durationUpdateInterval = setInterval(async () => {
-      await refreshTrackerInfo();
-    }, 60000); // Every minute
-  };
-
-  const stopDurationUpdates = () => {
-    if (durationUpdateInterval) {
-      clearInterval(durationUpdateInterval);
-      durationUpdateInterval = null;
-    }
-  };
 
   return {
     subscribe,
@@ -62,19 +34,18 @@ function createSessionStore() {
       try {
         const invoke = await getInvoke();
         await invoke('start_tracking', { notePath });
-        await refreshTrackerInfo();
-        startDurationUpdates();
-        update((s) => ({ ...s, isLoading: false, error: null }));
+        const info = await invoke<TrackerInfo | null>('get_tracker_info');
+        update((s) => ({ ...s, trackerInfo: info, isLoading: false, error: null }));
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.error('[Session] Failed to start tracking:', error);
+        toast.warning('Session tracking error');
         update((s) => ({ ...s, isLoading: false, error }));
       }
     },
 
     // Stop tracking and commit changes (when closing/switching notes)
     stopTracking: async (): Promise<TrackerInfo | null> => {
-      stopDurationUpdates();
       try {
         const invoke = await getInvoke();
         const trackerInfo = await invoke<TrackerInfo | null>('stop_tracking');
@@ -97,6 +68,7 @@ function createSessionStore() {
                 durationMinutes: trackerInfo.duration_minutes,
               });
               console.log('[Session] Committed on file close:', commitId);
+              toast.success(`Session saved (${formatDuration(trackerInfo.duration_minutes)})`);
             } catch (e) {
               console.error('[Session] Failed to commit on file close:', e);
             }
@@ -112,23 +84,14 @@ function createSessionStore() {
       }
     },
 
-    // Refresh tracker info from backend
-    refresh: refreshTrackerInfo,
-
     // Reset store
     reset: () => {
-      stopDurationUpdates();
       set(defaultState);
     },
   };
 }
 
 export const sessionStore = createSessionStore();
-
-// Derived stores for convenience
-export const trackerInfo = derived(sessionStore, ($s) => $s.trackerInfo);
-export const sessionDuration = derived(sessionStore, ($s) => $s.trackerInfo?.duration_minutes ?? 0);
-export const isTracking = derived(sessionStore, ($s) => $s.trackerInfo !== null);
 
 // Helper to format duration
 export function formatDuration(minutes: number): string {

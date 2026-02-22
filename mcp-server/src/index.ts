@@ -49,6 +49,9 @@ function setupRequestHandler(): void {
       const requestData = data as { style?: string } | undefined;
       const style = (requestData?.style || "standard") as ProcessingStyle;
 
+      // Acknowledge immediately so the frontend knows we're processing
+      sendPush("processingStarted", { style });
+
       try {
         const result = await processMeeting({
           path: "current",
