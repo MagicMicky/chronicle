@@ -1,6 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { isTauri, getInvoke } from '$lib/utils/tauri';
 import { currentWorkspace } from './workspace';
 import { parseTag, type TagCategory } from '$lib/utils/tagColors';
 
@@ -28,9 +27,10 @@ function createTagsStore() {
 
     load: async () => {
       const ws = get(currentWorkspace);
-      if (!ws) return;
+      if (!ws || !isTauri()) return;
 
       try {
+        const invoke = await getInvoke();
         const data = await invoke<TagIndex>('read_tags', { workspacePath: ws.path });
         update((s) => ({
           ...s,
@@ -102,7 +102,9 @@ export const tagFilteredPaths = derived(tagsStore, ($s) => {
 });
 
 /** Initialize event listener for tags updates */
-export async function initTagsListener(): Promise<UnlistenFn> {
+export async function initTagsListener(): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { listen } = await import('@tauri-apps/api/event');
   return listen('chronicle:tags-updated', () => {
     tagsStore.load();
   });

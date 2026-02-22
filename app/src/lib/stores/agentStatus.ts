@@ -1,7 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { currentWorkspace } from './workspace';
+import { isTauri, getInvoke } from '$lib/utils/tauri';
 
 interface AgentStatusState {
   isRunning: boolean;
@@ -29,9 +28,10 @@ function createAgentStatusStore() {
 
     loadStatus: async () => {
       const ws = get(currentWorkspace);
-      if (!ws) return;
+      if (!ws || !isTauri()) return;
 
       try {
+        const invoke = await getInvoke();
         const data = await invoke<Record<string, string>>('get_agent_status', {
           workspacePath: ws.path,
         });
@@ -63,8 +63,11 @@ export const isAgentsRunning = derived(agentStatusStore, ($s) => $s.isRunning);
 export const lastAgentRun = derived(agentStatusStore, ($s) => $s.lastRun);
 
 /** Initialize event listeners for agent lifecycle */
-export async function initAgentListeners(): Promise<UnlistenFn[]> {
-  const unlisteners: UnlistenFn[] = [];
+export async function initAgentListeners(): Promise<(() => void)[]> {
+  if (!isTauri()) return [];
+
+  const { listen } = await import('@tauri-apps/api/event');
+  const unlisteners: (() => void)[] = [];
 
   unlisteners.push(
     await listen('claude:agents-started', () => {

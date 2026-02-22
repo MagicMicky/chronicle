@@ -1,6 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { isTauri, getInvoke } from '$lib/utils/tauri';
 import { currentWorkspace } from './workspace';
 import { currentNote } from './note';
 
@@ -24,9 +23,10 @@ function createLinksStore() {
 
     load: async () => {
       const ws = get(currentWorkspace);
-      if (!ws) return;
+      if (!ws || !isTauri()) return;
 
       try {
+        const invoke = await getInvoke();
         const data = await invoke<LinksIndex>('read_links', { workspacePath: ws.path });
         update((s) => ({
           ...s,
@@ -60,7 +60,9 @@ export const relatedNotes = derived(
 );
 
 /** Initialize event listener for links updates */
-export async function initLinksListener(): Promise<UnlistenFn> {
+export async function initLinksListener(): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { listen } = await import('@tauri-apps/api/event');
   return listen('chronicle:links-updated', () => {
     linksStore.load();
   });

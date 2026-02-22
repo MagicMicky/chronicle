@@ -1,5 +1,5 @@
 import { writable, derived } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { isTauri, getInvoke } from '$lib/utils/tauri';
 import { uiStore } from '$lib/stores/ui';
 
 // Claude CLI availability status (replaces old WebSocket MCP connection status)
@@ -151,6 +151,7 @@ function createAIOutputStore() {
       if (alreadyLoading) return;
 
       try {
+        const invoke = await getInvoke();
         const sections = await invoke<ParsedSections>('read_processed_file', {
           path: fullPath,
         });
@@ -196,7 +197,9 @@ export const aiStreamLines = derived(
 
 // Check Claude CLI availability on startup
 export async function checkClaudeAvailability(): Promise<void> {
+  if (!isTauri()) return;
   try {
+    const invoke = await getInvoke();
     const available = await invoke<boolean>('get_mcp_status');
     isMcpConnected.set(available);
   } catch {

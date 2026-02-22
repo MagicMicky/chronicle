@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { isTauri, getInvoke } from '$lib/utils/tauri';
 import { currentWorkspace } from './workspace';
 
 export interface ActionItem {
@@ -34,10 +34,11 @@ function createActionsStore() {
     /** Load actions from .chronicle/actions.json via Rust command */
     load: async () => {
       const workspace = get(currentWorkspace);
-      if (!workspace) return;
+      if (!workspace || !isTauri()) return;
 
       update((s) => ({ ...s, isLoading: true, error: null }));
       try {
+        const invoke = await getInvoke();
         const raw = await invoke<string>('read_actions_file', {
           workspacePath: workspace.path,
         });
@@ -62,7 +63,7 @@ function createActionsStore() {
     /** Toggle a single action between open and done */
     toggleStatus: async (index: number) => {
       const workspace = get(currentWorkspace);
-      if (!workspace) return;
+      if (!workspace || !isTauri()) return;
 
       const state = get({ subscribe });
       const action = state.actions[index];
@@ -71,6 +72,7 @@ function createActionsStore() {
       const newStatus = action.status === 'done' ? 'open' : 'done';
 
       try {
+        const invoke = await getInvoke();
         await invoke('update_action_status', {
           workspacePath: workspace.path,
           actionIndex: index,

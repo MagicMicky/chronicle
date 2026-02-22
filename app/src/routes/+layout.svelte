@@ -14,13 +14,12 @@
     closeCommandRunner,
     type CommandInfo,
   } from '$lib/stores/commands';
-  import { listen as tauriListen } from '@tauri-apps/api/event';
   import { hasOpenNote, isNoteDirty, noteStore, currentNote, loadLastSession, saveLastSession, openDailyNote } from '$lib/stores/note';
   import { workspaceStore, currentWorkspace, hasWorkspace } from '$lib/stores/workspace';
   import { sessionStore } from '$lib/stores/session';
   import { autoSaveStore } from '$lib/stores/autosave';
   import { toast } from '$lib/stores/toast';
-  import { getInvoke } from '$lib/utils/tauri';
+  import { getInvoke, isTauri } from '$lib/utils/tauri';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import StatusBar from '$lib/layout/StatusBar.svelte';
@@ -33,8 +32,19 @@
   import CommandRunner from '$lib/components/CommandRunner.svelte';
   import ActionDashboard from '$lib/components/ActionDashboard.svelte';
   import TranscriptModal from '$lib/components/TranscriptModal.svelte';
-  import type { UnlistenFn } from '@tauri-apps/api/event';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
+
+  // Dynamically import Tauri APIs to avoid crashes outside Tauri webview
+  async function tauriListen<T>(event: string, handler: (event: { payload: T }) => void): Promise<() => void> {
+    if (!isTauri()) return () => {};
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen(event, handler);
+  }
+
+  async function getTauriWindow() {
+    if (!isTauri()) return null;
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    return getCurrentWindow();
+  }
 
   interface Props {
     children: import('svelte').Snippet;
@@ -296,36 +306,38 @@
     window.addEventListener('chronicle:paste-transcript', handlePasteTranscript);
 
     // Tauri native close-requested handler: save + commit before closing
-    let closeUnlisten: UnlistenFn | undefined;
-    getCurrentWindow().onCloseRequested(async (event) => {
-      if (get(isNoteDirty)) {
-        event.preventDefault();
-        try {
-          await autoSaveStore.saveNow();
-          await sessionStore.stopTracking();
-          // Close the window after successful save
-          await getCurrentWindow().close();
-        } catch {
-          // Save failed - ask user if they want to close anyway
-          const { confirm } = await import('@tauri-apps/plugin-dialog');
-          const shouldClose = await confirm(
-            "Changes couldn't be saved. Close anyway?",
-            { title: 'Unsaved Changes', kind: 'warning' }
-          );
-          if (shouldClose) {
-            await getCurrentWindow().destroy();
+    let closeUnlisten: (() => void) | undefined;
+    getTauriWindow().then((win) => {
+      if (!win) return;
+      win.onCloseRequested(async (event) => {
+        if (get(isNoteDirty)) {
+          event.preventDefault();
+          try {
+            await autoSaveStore.saveNow();
+            await sessionStore.stopTracking();
+            const w = await getTauriWindow();
+            await w?.close();
+          } catch {
+            const { confirm } = await import('@tauri-apps/plugin-dialog');
+            const shouldClose = await confirm(
+              "Changes couldn't be saved. Close anyway?",
+              { title: 'Unsaved Changes', kind: 'warning' }
+            );
+            if (shouldClose) {
+              const w = await getTauriWindow();
+              await w?.destroy();
+            }
           }
+        } else {
+          await sessionStore.stopTracking();
         }
-      } else {
-        // No unsaved changes, still commit session before closing
-        await sessionStore.stopTracking();
-      }
-    }).then((unlisten) => {
-      if (destroyed) {
-        unlisten();
-      } else {
-        closeUnlisten = unlisten;
-      }
+      }).then((unlisten) => {
+        if (destroyed) {
+          unlisten();
+        } else {
+          closeUnlisten = unlisten;
+        }
+      });
     });
 
     function handleKeyDown(e: KeyboardEvent) {

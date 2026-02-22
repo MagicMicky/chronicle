@@ -1,10 +1,12 @@
 import { writable } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { isTauri, getInvoke } from '$lib/utils/tauri';
 
 export const claudeInstalled = writable<boolean>(false);
 
 export async function checkClaudeInstalled(): Promise<boolean> {
+  if (!isTauri()) return false;
   try {
+    const invoke = await getInvoke();
     const installed = await invoke<boolean>('check_claude_installed');
     claudeInstalled.set(installed);
     return installed;
@@ -12,9 +14,4 @@ export async function checkClaudeInstalled(): Promise<boolean> {
     claudeInstalled.set(false);
     return false;
   }
-}
-
-// Auto-check on module load
-if (typeof window !== 'undefined') {
-  checkClaudeInstalled();
 }
