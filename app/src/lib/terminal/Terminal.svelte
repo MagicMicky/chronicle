@@ -4,6 +4,7 @@
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
   import { currentWorkspace } from '$lib/stores/workspace';
+  import { claudeInstalled } from '$lib/stores/claudeStatus';
   import { spawnPty, type Pty } from './pty';
   import { Minus } from 'lucide-svelte';
   import type { Terminal as XTerm } from '@xterm/xterm';
@@ -151,10 +152,12 @@
 
       terminalStore.setSpawned(workspacePath);
 
-      // Auto-launch Claude Code after shell is ready
+      // Auto-launch Claude Code after shell is ready (only if installed)
       autoLaunchTimeout = setTimeout(() => {
         autoLaunchTimeout = null;
-        pty?.write('claude\n');
+        if (get(claudeInstalled)) {
+          pty?.write('claude\n');
+        }
       }, 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
