@@ -367,168 +367,324 @@ Current shortcuts are minimal. Need:
 7. Terminal hidden by default (Cmd+` to toggle)
 
 ### Phase 3: Intelligence — Claude Code as the Brain (2-3 weeks)
-**Goal: Claude Code agents continuously organize, tag, correlate, and surface insights from your notes**
+**Goal: Claude Code continuously organizes, tags, correlates, and surfaces insights from your notes**
 
 Chronicle's differentiator isn't "AI summarizes your notes." Any app can do that. The differentiator is: **Claude Code lives inside your note system and works on it like a colleague.**
 
-#### Core Principle: MCP Is the Nervous System
+#### Core Principle: No API Keys, No Separate Servers — Just Claude Code
 
-The MCP server isn't optional — it's how Claude Code sees and acts on your notes. But today it only has 5 tools and 2 resources. That's a skeleton. We need to build the full body:
+Chronicle uses the user's **existing Claude Code subscription**. No `ANTHROPIC_API_KEY`, no separate billing, no MCP server making its own API calls. The user pays for Claude Code once and Chronicle rides on it.
 
-#### 3.1 Background Agents (The Killer Feature)
+**The key insight:** `claude -p` (pipe/print mode) runs Claude Code non-interactively from the command line. It uses the user's subscription, can read/write files, and returns structured output. The Tauri app spawns `claude -p` processes to do AI work.
 
-When you close a note (or on a schedule), Claude Code agents wake up and work on your workspace:
+**What we're removing:**
+- The entire MCP server's Claude API integration (`@anthropic-ai/sdk`)
+- The WebSocket server in the Rust backend
+- The WebSocket client in the MCP server
+- All the plumbing between app ↔ MCP for processing
+
+**What replaces it:**
+- `claude -p` invoked from Rust via `Command::new("claude")`
+- The filesystem as the communication channel (`.chronicle/` directory)
+- Tauri's `notify` file watcher to detect when Claude writes results
+- The existing MCP server stays ONLY as an optional config for users who want Claude Code terminal access to their notes (registered in `~/.claude.json`)
+
+#### 3.0 Architecture: How Claude Code Integrates
+
+```
+┌─────────────────────────────────────────────────┐
+│ Chronicle App (Tauri)                           │
+│                                                 │
+│  User clicks "Process" or app detects idle      │
+│       │                                         │
+│       ▼                                         │
+│  Rust spawns: claude -p "process this note"     │
+│    --output-format json                         │
+│    --allowedTools "Read,Write,Edit,Glob,Grep"   │
+│    --max-turns 5                                │
+│    --append-system-prompt "..."                  │
+│    --cwd /path/to/workspace                     │
+│       │                                         │
+│       ▼                                         │
+│  Claude Code (user's subscription)              │
+│  - Reads the note file                          │
+│  - Reads .chronicle/state.json for context      │
+│  - Processes content                            │
+│  - Writes results to .chronicle/                │
+│       │                                         │
+│       ▼                                         │
+│  App watches .chronicle/ with fs::notify        │
+│  - Detects new/changed index files              │
+│  - Updates UI reactively (tags, actions, etc.)  │
+│                                                 │
+│  Terminal (Cmd+`)                               │
+│  - User can also talk to Claude Code directly   │
+│  - "what are my open action items?"             │
+│  - Claude reads .chronicle/ indexes + notes     │
+└─────────────────────────────────────────────────┘
+```
+
+**No WebSocket. No MCP processing. No API keys. Just `claude -p` and the filesystem.**
+
+#### 3.1 The `claude -p` Interface
+
+**How we invoke Claude Code from Rust:**
+
+```rust
+#[tauri::command]
+async fn run_claude_task(task: String, workspace: String) -> Result<String, String> {
+    let output = tokio::process::Command::new("claude")
+        .args(&[
+            "-p", &task,
+            "--output-format", "json",
+            "--allowedTools", "Read,Write,Edit,Glob,Grep",
+            "--max-turns", "10",
+            "--cwd", &workspace,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run Claude Code: {}", e))?;
+
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Invalid output: {}", e))
+}
+```
+
+**Key flags:**
+| Flag | Purpose |
+|------|---------|
+| `-p` | Non-interactive mode (pipe), exits when done |
+| `--output-format json` | Structured JSON response for parsing |
+| `--allowedTools` | Auto-approve file tools (no permission prompts) |
+| `--max-turns N` | Limit work to prevent runaway |
+| `--max-budget-usd N` | Spending cap per invocation |
+| `--cwd` | Set working directory to workspace |
+| `--append-system-prompt` | Custom instructions for the task |
+
+**What Claude Code already has built-in:**
+- `Read` — read any file
+- `Write` — create files
+- `Edit` — modify files
+- `Glob` — find files by pattern
+- `Grep` — search file contents
+- `Bash` — run commands (git log, etc.)
+
+We don't need MCP tools. Claude Code can already do everything through its native tools.
+
+#### 3.2 Prompt Files (The "Agent" Definitions)
+
+Instead of MCP tool schemas, we define agents as **prompt files** in `.chronicle/prompts/`:
+
+```
+.chronicle/
+├── prompts/
+│   ├── process.md      # "Process this note into structured sections"
+│   ├── tagger.md       # "Extract tags from recently modified notes"
+│   ├── correlator.md   # "Find connections between notes"
+│   ├── actions.md      # "Scan notes for action items, update index"
+│   └── digest.md       # "Generate summary of notes from this period"
+├── state.json          # Current app state (written by Tauri)
+├── tags.json           # Tag index (written by Claude)
+├── actions.json        # Action items (written by Claude)
+├── links.json          # Note correlations (written by Claude)
+├── agent-runs.json     # Last run times per agent
+└── digests/
+    ├── 2026-02-22.md
+    └── 2026-W08.md
+```
+
+**Example: `.chronicle/prompts/process.md`**
+```markdown
+You are Chronicle's note processor. Read the note at the path provided
+and create a structured summary.
+
+Read .chronicle/state.json to find the current file and workspace.
+
+Output structure (write to .chronicle/processed/{filename}.json):
+- tldr: 2-3 sentence summary
+- keyPoints: array of thematic bullet points
+- actionItems: array of {text, owner, done}
+- questions: array of open questions
+- tags: suggested tags for this note
+
+Use the semantic markers in the note:
+- > = thoughts, ! = important, ? = questions, [] = actions, @ = attributions
+
+Write the JSON output file, then write a human-readable .md version
+to .chronicle/processed/{filename}.md.
+```
+
+**Invocation:** `claude -p "$(cat .chronicle/prompts/process.md) Process: meeting-notes.md"`
+
+#### 3.3 Background Agents
 
 **Tagger Agent**
-- Reads newly saved/modified notes
-- Extracts and assigns `#tags` based on content, people mentioned, projects referenced
-- Writes tags to a `.chronicle/tags.json` index
-- UI shows tags in sidebar, click to filter
-- Example: You write about a meeting with Sarah about the API redesign → auto-tagged `#sarah`, `#api-redesign`, `#architecture`
+- Prompt: `.chronicle/prompts/tagger.md`
+- Reads notes modified since last run (checks `agent-runs.json`)
+- Extracts tags: people (`@sarah`), projects, themes, topics
+- Writes to `.chronicle/tags.json`
+- App watches file → updates sidebar Tags tab
 
 **Correlator Agent**
-- Runs after Tagger
-- Finds connections between notes: "This note mentions the same project as 3 notes from last week"
-- Builds a link graph in `.chronicle/links.json`
-- Surfaces "Related Notes" in the AI panel when viewing a note
-- Example: You open today's standup notes → sidebar shows "Related: API Redesign Kickoff (Feb 18), Sarah 1:1 (Feb 20)"
+- Prompt: `.chronicle/prompts/correlator.md`
+- Reads `.chronicle/tags.json` to find notes with overlapping tags
+- Reads note content for semantic similarity
+- Writes to `.chronicle/links.json`
+- App watches file → shows "Related Notes" in AI panel
 
 **Action Tracker Agent**
-- Scans all notes for `[]` markers (action items)
-- Builds a cross-note action item database in `.chronicle/actions.json`
-- Tracks status: open, completed (`[x]`), stale (>7 days old, no update)
-- Surfaces "You have 3 overdue action items" in the AI panel
-- Example: You wrote `[] follow up with Sarah on API timeline` last Tuesday → agent flags it as overdue
+- Prompt: `.chronicle/prompts/actions.md`
+- Scans all notes for `[]` and `[x]` markers
+- Cross-references with existing `.chronicle/actions.json`
+- Detects: new items, completed items, stale items (>7 days)
+- Writes updated `.chronicle/actions.json`
+- App watches file → updates sidebar Actions tab
 
 **Digest Agent**
-- Runs on schedule (daily evening, weekly Friday)
-- Generates summaries: "This week you had 8 meetings, 12 open action items (5 new, 3 completed, 4 carried over)"
-- Writes digest to a `.chronicle/digests/` folder
-- Shows in UI as a special "digest" note type
-- Example: Friday afternoon, a "Weekly Digest" appears in your sidebar
+- Prompt: `.chronicle/prompts/digest.md`
+- Reads all notes from the period + action items + tags
+- Generates structured summary
+- Writes to `.chronicle/digests/YYYY-MM-DD.md`
+- App watches folder → shows digest in sidebar
 
-#### 3.2 How Agents Run
+#### 3.4 Trigger Mechanism
 
-Two modes:
+**From the app (automatic):**
+```rust
+// Idle detection: no edits for 2 minutes
+fn on_idle_timeout(workspace: &str) {
+    // Run tagger → correlator → action tracker sequentially
+    run_claude_task(read_prompt("tagger.md"), workspace).await;
+    run_claude_task(read_prompt("correlator.md"), workspace).await;
+    run_claude_task(read_prompt("actions.md"), workspace).await;
+}
 
-**Automatic (Background)**
-- Chronicle app detects idle (no edits for 2 minutes)
-- Sends a trigger via WebSocket to MCP server
-- MCP server spawns agent tasks (tagger → correlator → action tracker)
-- Agents run sequentially, updating index files
-- App watches index files and updates UI reactively
-- User sees tags/links/actions appear in sidebar without doing anything
+// Processing: user presses Cmd+Enter
+fn on_process_note(workspace: &str, note_path: &str) {
+    let prompt = format!("{} Process: {}", read_prompt("process.md"), note_path);
+    run_claude_task(&prompt, workspace).await;
+}
+```
 
-**On-Demand (Terminal)**
-- User opens terminal (Cmd+`), types natural language:
-  - `claude "what are my open action items?"`
-  - `claude "summarize this week's meetings"`
-  - `claude "what did Sarah say about the timeline?"`
-  - `claude "tag all my notes from this week"`
-  - `claude "find notes related to the API redesign"`
-- Claude Code uses MCP tools to read notes, search, and respond
+**From the terminal (on-demand):**
+```bash
+# User types directly in Chronicle's terminal:
+claude "what are my open action items? check .chronicle/actions.json"
+claude "summarize my meetings this week"
+claude "tag all notes from today"
+```
 
-#### 3.3 New MCP Tools Needed
+**Scheduled (digests):**
+- Tauri background timer: run digest agent daily at 6pm if workspace was active
+- Or: run on app launch if last digest was >24h ago
 
-| Tool | Purpose | Agent Use |
-|------|---------|-----------|
-| `list_notes` | List workspace files with date/tag filters | All agents |
-| `read_note` | Read specific note by path | All agents |
-| `get_tags` | Read current tag index | Correlator |
-| `set_tags` | Update tags for a note | Tagger |
-| `get_actions` | Get all action items across notes | Action Tracker |
-| `update_action` | Mark action as complete/stale | Action Tracker |
-| `get_links` | Get note link graph | Correlator |
-| `set_links` | Update links for a note | Correlator |
-| `search_notes` | Full-text search across all notes | On-demand queries |
-| `create_digest` | Generate daily/weekly digest | Digest Agent |
-| `get_note_context` | Get tags + links + actions for a note | UI panel population |
+#### 3.5 Filesystem as Communication
 
-#### 3.4 New MCP Resources Needed
+**App → Claude Code:** `.chronicle/state.json`
+```json
+{
+  "workspacePath": "/home/user/notes",
+  "currentFile": "2026-02-22-sunday.md",
+  "lastEdited": "2026-02-22T10:30:00Z",
+  "noteCount": 47
+}
+```
+Written by Tauri on every file switch. Claude Code reads it to know context.
 
-| Resource | Purpose |
-|----------|---------|
-| `note://file/{path}` | Read any note by path |
-| `note://today` | Today's notes |
-| `note://recent` | Notes from last 7 days |
-| `note://tags` | Full tag index |
-| `note://actions` | All open action items |
-| `note://digest/latest` | Most recent digest |
+**Claude Code → App:** Index files in `.chronicle/`
+- Claude writes `tags.json`, `actions.json`, `links.json`, processed files
+- Tauri watches with `notify` crate (filesystem events)
+- UI updates reactively when files change
 
-#### 3.5 What the UI Shows
+**No WebSocket. No polling. Just files.**
+
+#### 3.6 What the UI Shows
 
 **Sidebar additions:**
-- **Tags tab**: All tags with note counts, click to filter file list
-- **Actions tab**: Open action items across all notes, grouped by note, with age indicators
-- **Links section** (in AI panel): "Related Notes" when viewing a note
+- **Tags section**: All tags with note counts, click to filter file list
+- **Actions section**: Open action items across notes, grouped by note, overdue badges
 
-**AI Panel additions:**
-- "Related Notes" section (from Correlator)
-- "Open Actions" badge on notes that have unresolved items
-- "Digest available" notification
-- Agent activity indicator: subtle "Organizing..." text when agents are running
+**AI Panel (right side, auto-shows when content exists):**
+- Processed note sections (TL;DR, Key Points, Actions, Questions)
+- "Related Notes" links (from correlator)
+- Tags for current note
 
 **Status bar:**
-- "Last organized: 5 min ago" (when agents last ran)
+- "Last organized: 5 min ago" (from `agent-runs.json`)
+- Agent activity: "Organizing..." spinner when `claude -p` is running
 - Tag count for current note
 
-#### 3.6 The Experience
+#### 3.7 The Experience
 
 ```
 Morning:
 1. Open Chronicle → see yesterday's digest in sidebar
-2. Click "Today's Note" → empty note with date header
+2. Click "Today's Note" → template with date header
 3. Join standup → type freely with markers
 4. Close note → auto-save, auto-commit
-5. 2 minutes later: tags appear, related notes link, action items indexed
+5. 2 minutes idle → Claude Code runs in background:
+   - Tags extracted: #standup, #api-redesign, #sarah
+   - Actions indexed: "[] follow up on timeline"
+   - Links found: related to Tuesday's API kickoff note
+6. Tags and actions appear in sidebar (filesystem watch)
 
 Afternoon:
-1. Open Chronicle → see today's 3 notes in sidebar
-2. Notice "2 overdue actions" badge
-3. Click it → see action items from this week
+1. Open Chronicle → see today's 3 notes
+2. Notice "2 overdue actions" badge in sidebar
+3. Click → see action items from this week with source notes
 4. Open terminal: "claude summarize my meetings this week"
-5. Claude reads all notes via MCP, generates cross-note summary
+5. Claude reads notes directly, generates cross-note summary
 
 Friday:
 1. Open Chronicle → weekly digest waiting
-2. Read: "8 meetings, 12 actions (5 new, 3 done, 4 carried), key themes: API redesign, Q3 planning"
-3. Process digest → structured overview of the week
+2. "8 meetings, 12 actions (5 new, 3 done, 4 carried)"
+3. Key themes: API redesign, Q3 planning, hiring
 ```
 
-#### 3.7 Technical Implementation
+#### 3.8 What Happens to the MCP Server
 
-**Agent orchestration:**
-- Agents are MCP tool calls chained together
-- Tagger: `list_notes(modified_since: last_run)` → for each: `read_note` → analyze → `set_tags`
-- Correlator: `get_tags` → find overlaps → `set_links`
-- Action Tracker: `list_notes` → for each: `read_note` → extract `[]` items → `update_action`
-- Digest: `list_notes(since: period)` → `read_note` each → `get_actions` → generate → `create_digest`
+**The MCP server becomes optional.** It's useful for ONE thing: letting Claude Code in the terminal discover Chronicle's data through structured resources/tools. But it's no longer required for processing.
 
-**Index files (`.chronicle/`):**
-```
-.chronicle/
-├── tags.json          # {noteId: [tags], tagIndex: {tag: [noteIds]}}
-├── actions.json       # [{text, note, created, status, owner}]
-├── links.json         # {noteId: [relatedNoteIds]}
-├── digests/
-│   ├── 2026-02-22.md  # Daily digest
-│   └── 2026-W08.md    # Weekly digest
-└── agent-state.json   # Last run times, agent status
-```
+**Keep (optional, in `~/.claude.json`):**
+- `note://current` resource → reads `.chronicle/state.json`
+- `note://tags` resource → reads `.chronicle/tags.json`
+- Git history tools (get_history, compare_versions)
+- These help Claude Code in the terminal give better answers
 
-**Trigger mechanism:**
-- App idle timer (2 min no edits) → WebSocket push `agentTrigger` → MCP server runs agents
-- Scheduled via system cron or Tauri background task for digests
-- Manual via terminal: `claude "organize my notes"`
+**Remove:**
+- `@anthropic-ai/sdk` dependency (no more direct API calls)
+- `process_meeting` tool (processing done via `claude -p`)
+- WebSocket client (reads filesystem instead)
+- All WebSocket message handling
+
+**Remove from Rust backend:**
+- WebSocket server (`websocket/` module)
+- App state sharing via WebSocket
+- Processing trigger via WebSocket
+- MCP connection tracking
+
+**The MCP server goes from ~1000 lines to ~200 lines.** Or we can remove it entirely and let Claude Code's native tools (Read, Glob, Grep) handle everything — the prompt files tell it where to find things.
+
+#### 3.9 Implementation Order
+
+1. **`.chronicle/` infrastructure** — directory structure, JSON schemas, state.json writer, filesystem watcher in Rust
+2. **`claude -p` integration** — Rust command to spawn Claude Code, capture output, handle errors
+3. **Process note via Claude Code** — replace MCP processing with `claude -p` + prompt file
+4. **Tagger agent** — prompt file + idle trigger + tags.json + Tags UI in sidebar
+5. **Action Tracker agent** — prompt file + actions.json + Actions UI in sidebar
+6. **Correlator agent** — prompt file + links.json + Related Notes in AI panel
+7. **Digest agent** — prompt file + scheduled trigger + digest display
+8. **Remove WebSocket layer** — gut the WS server, WS client, MCP processing
+9. **Simplify MCP server** — optional, filesystem-only, no SDK
 
 ### Phase 4: Polish (1 week)
 **Goal: App feels professional**
 1. Focus mode (Cmd+Shift+F11)
-2. Templates (meeting, 1:1, standup)
+2. Templates (meeting, 1:1, standup, custom)
 3. Export (PDF, clipboard)
-4. Onboarding flow for first launch
-5. Agent configuration (which agents run, how often)
-6. MCP server health dashboard (connection status, last agent run, etc.)
+4. Onboarding flow for first launch (pick folder, verify Claude Code installed)
+5. Agent configuration (which agents run, frequency, budget limits)
+6. Claude Code status in UI (installed? version? subscription active?)
 
 ---
 
@@ -555,9 +711,17 @@ Friday:
 - [x] CodeMirror editor with markdown support
 - [x] Dark/light theme
 - [x] Keyboard-first design
-- [x] **MCP server — core integration point for Claude Code agents**
 - [x] **Terminal — where users interact with Claude Code directly**
-- [x] **Processing via MCP — Claude API calls stay in the MCP server**
+- [x] **`claude -p` — the app invokes Claude Code using the user's subscription**
+- [x] **Filesystem as communication — `.chronicle/` directory, no WebSocket**
+
+### Remove (from current architecture)
+- [ ] WebSocket server in Rust backend
+- [ ] WebSocket client in MCP server
+- [ ] `@anthropic-ai/sdk` in MCP server (no direct API calls)
+- [ ] `process_meeting` tool (replaced by `claude -p`)
+- [ ] `ANTHROPIC_API_KEY` requirement
+- [ ] MCP server as required dependency (becomes optional)
 
 ---
 
@@ -574,23 +738,32 @@ How do we know the redesign worked?
 
 ---
 
-## Appendix: File-by-File Issues Found
+## Appendix: Issue Status After Phase 1 & 2
 
-### Critical Bugs
-- `app/src-tauri/src/websocket/server.rs`: Spawns separate tokio runtime (line ~160)
-- `app/src-tauri/src/commands/processing.rs`: Fake UUID generation (line ~52)
-- `app/src-tauri/src/storage/files.rs`: Atomic write doesn't clean up .tmp on error (line ~43)
-- `mcp-server/src/websocket/client.ts`: `sendPush()` silently drops messages when disconnected
-- `mcp-server/src/tools/process.ts`: Session duration available but not passed to prompt builder
+### Fixed in Phase 1
+- [x] Atomic write .tmp cleanup (storage/files.rs)
+- [x] Fake UUID → proper uuid crate (processing.rs)
+- [x] WebSocket separate tokio runtime → Tauri's runtime (server.rs)
+- [x] Push messages silently dropped → message queue (client.ts)
+- [x] No save indicator → persistent save state
+- [x] No state restoration → full persistence
+- [x] No error surfacing → toast notification system
 
-### Security Concerns
-- No symlink protection in MCP server file reads
-- No max file size validation in MCP server
-- WebSocket has no authentication (relies on localhost-only binding)
+### Fixed in Phase 2
+- [x] No file search → full-text search (Cmd+Shift+F)
+- [x] No file management → context menus (rename/delete/create)
+- [x] Missing keyboard shortcuts → comprehensive set
+- [x] Cluttered sidebar → simplified with recent files
+- [x] AI panel always visible → auto-show/hide
+- [x] Terminal always visible → hidden drawer
+
+### Being removed in Phase 3
+- WebSocket server/client (replaced by filesystem communication)
+- MCP server's Claude API calls (replaced by `claude -p`)
+- `ANTHROPIC_API_KEY` requirement (uses Claude Code subscription)
+- Processing via MCP (replaced by prompt files + `claude -p`)
+
+### Remaining concerns
 - Git commit messages not sanitized (could break format)
-
-### Performance Issues
-- MCP server uses `execFileSync` for git (blocks event loop)
 - Theme change rebuilds entire CodeMirror editor
 - File tree re-renders on every status update
-- Two tokio runtimes running simultaneously
