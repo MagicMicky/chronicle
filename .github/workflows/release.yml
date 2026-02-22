@@ -117,4 +117,4 @@ jobs:
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ matrix.platform == 'ubuntu-22.04' && '--bundles deb,rpm' || '' }}
