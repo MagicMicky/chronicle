@@ -5,6 +5,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeResult {
     pub success: bool,
@@ -72,9 +75,14 @@ async fn run_claude_streaming(
     }
 
     let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = Command::new("cmd");
-        c.arg("/c").arg("claude").args(&args);
-        c
+        let mut std_cmd = std::process::Command::new("cmd");
+        std_cmd.arg("/c").arg("claude").args(&args);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            std_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        Command::from(std_cmd)
     } else {
         let mut c = Command::new("claude");
         c.args(&args);
@@ -328,10 +336,14 @@ pub async fn run_background_agents(
 #[tauri::command]
 pub async fn check_claude_installed() -> Result<bool, String> {
     let output = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/c", "claude", "--version"])
-            .output()
-            .await
+        let mut std_cmd = std::process::Command::new("cmd");
+        std_cmd.args(["/c", "claude", "--version"]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            std_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        Command::from(std_cmd).output().await
     } else {
         Command::new("claude").args(["--version"]).output().await
     };

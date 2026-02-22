@@ -10,7 +10,9 @@ export async function getDefaultShell(): Promise<{ command: string; args: string
     const shell = await invoke<string>('get_default_shell');
 
     // Use -i for interactive shell (enables prompt, history, etc.)
-    return { command: shell, args: ['-i'] };
+    // PowerShell doesn't support -i; use -NoExit to keep session open
+    const isPowerShell = shell.toLowerCase().includes('powershell');
+    return { command: shell, args: isPowerShell ? ['-NoExit'] : ['-i'] };
   } catch {
     // Fallback
     const platform = navigator.platform.toLowerCase();
