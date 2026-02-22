@@ -64,6 +64,7 @@ jobs:
       - name: Build MCP server binary (Windows)
         if: matrix.platform == 'windows-latest'
         working-directory: mcp-server
+        shell: bash
         run: |
           bun run compile:windows
           mkdir -p ../app/src-tauri/binaries
