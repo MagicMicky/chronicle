@@ -38,39 +38,41 @@ They do NOT want:
 
 ## Part 2: Architecture Problems
 
-### Problem 1: The MCP Server Is Over-Engineered
+### Problem 1: The MCP Server Is Under-Utilized, Not Over-Engineered
 
-**Current flow (5 hops):**
+**Corrected take:** Claude Code integration IS the product. MCP is the right architecture for it. The problem isn't MCP's existence — it's that:
+
+1. The WebSocket connection is fragile (race conditions, silent push failures, no heartbeat)
+2. MCP only has 5 tools — far too few for real Claude Code agent workflows
+3. Processing goes through MCP but the result flow back to the UI is broken
+4. There's no agent orchestration — just one-shot tool calls
+
+**What needs to change:**
+
+**Fix the plumbing:**
+- Add WebSocket heartbeat/keepalive
+- Add message queue with retry for push events
+- Fix startup race condition (MCP server should wait for app connection)
+- Add connection status visible in the UI
+
+**Expand the MCP surface:**
+- Add 10+ new tools for agents (tagging, searching, correlating, action tracking)
+- Add resources for notes, tags, actions, digests
+- Enable agent workflows: chained tool calls that run in background
+
+**Keep processing in MCP** (it's already there and working), but fix the reliability:
+- Streaming responses back to UI
+- Proper error recovery
+- Re-process capability
+
+**The flow stays the same but gets reliable:**
 ```
-User clicks Process
-  → Svelte frontend
-  → Tauri IPC
-  → Rust WebSocket client sends to MCP server
-  → MCP server calls Claude API
-  → Response flows back through all 5 layers
-```
-
-**Why this is wrong:**
-- MCP was designed for multi-client AI tool access. Chronicle has ONE client.
-- The WebSocket connection between Tauri and MCP is fragile (race conditions on startup, silent push failures, no heartbeat).
-- Distributing a separate TypeScript runtime (Bun/Node) alongside a Tauri app is painful.
-- Debugging 5 layers of indirection for "call Claude API" is absurd.
-
-**What MCP IS useful for:**
-- Letting Claude Code (in terminal) access your notes via `note://current` resource
-- Running queries like "list my action items across all notes" from CLI
-- Future: letting other AI tools interact with your notes
-
-**Proposed fix:**
-- Move core AI processing INTO the Rust backend (direct Claude API call via `reqwest`)
-- Keep MCP server as an OPTIONAL companion for Claude Code integration
-- MCP becomes a read-only bridge, not the processing engine
-
-**New flow (2 hops):**
-```
-User clicks Process
-  → Tauri command calls Claude API directly
-  → Response updates UI
+User clicks Process (or agent triggers automatically)
+  → Tauri IPC → WebSocket → MCP Server → Claude API
+  → Streaming results back through WebSocket → Tauri events → UI
+  + Message queue ensures nothing is dropped
+  + Heartbeat ensures connection is alive
+  + Agent orchestration chains multiple tool calls
 ```
 
 ### Problem 2: Session Tracking Is Confusing
@@ -364,24 +366,169 @@ Current shortcuts are minimal. Need:
 6. AI panel slides in only when content exists
 7. Terminal hidden by default (Cmd+` to toggle)
 
-### Phase 3: Intelligence (1-2 weeks)
-**Goal: AI adds real value beyond processing**
-1. Auto-tagging on save
-2. #tag extraction and sidebar filter
-3. Cross-note action item tracking
-4. Note linking with `[[wiki-links]]`
-5. Streaming AI responses (show sections as they generate)
-6. Processing history (not just latest)
-7. Re-process button
+### Phase 3: Intelligence — Claude Code as the Brain (2-3 weeks)
+**Goal: Claude Code agents continuously organize, tag, correlate, and surface insights from your notes**
+
+Chronicle's differentiator isn't "AI summarizes your notes." Any app can do that. The differentiator is: **Claude Code lives inside your note system and works on it like a colleague.**
+
+#### Core Principle: MCP Is the Nervous System
+
+The MCP server isn't optional — it's how Claude Code sees and acts on your notes. But today it only has 5 tools and 2 resources. That's a skeleton. We need to build the full body:
+
+#### 3.1 Background Agents (The Killer Feature)
+
+When you close a note (or on a schedule), Claude Code agents wake up and work on your workspace:
+
+**Tagger Agent**
+- Reads newly saved/modified notes
+- Extracts and assigns `#tags` based on content, people mentioned, projects referenced
+- Writes tags to a `.chronicle/tags.json` index
+- UI shows tags in sidebar, click to filter
+- Example: You write about a meeting with Sarah about the API redesign → auto-tagged `#sarah`, `#api-redesign`, `#architecture`
+
+**Correlator Agent**
+- Runs after Tagger
+- Finds connections between notes: "This note mentions the same project as 3 notes from last week"
+- Builds a link graph in `.chronicle/links.json`
+- Surfaces "Related Notes" in the AI panel when viewing a note
+- Example: You open today's standup notes → sidebar shows "Related: API Redesign Kickoff (Feb 18), Sarah 1:1 (Feb 20)"
+
+**Action Tracker Agent**
+- Scans all notes for `[]` markers (action items)
+- Builds a cross-note action item database in `.chronicle/actions.json`
+- Tracks status: open, completed (`[x]`), stale (>7 days old, no update)
+- Surfaces "You have 3 overdue action items" in the AI panel
+- Example: You wrote `[] follow up with Sarah on API timeline` last Tuesday → agent flags it as overdue
+
+**Digest Agent**
+- Runs on schedule (daily evening, weekly Friday)
+- Generates summaries: "This week you had 8 meetings, 12 open action items (5 new, 3 completed, 4 carried over)"
+- Writes digest to a `.chronicle/digests/` folder
+- Shows in UI as a special "digest" note type
+- Example: Friday afternoon, a "Weekly Digest" appears in your sidebar
+
+#### 3.2 How Agents Run
+
+Two modes:
+
+**Automatic (Background)**
+- Chronicle app detects idle (no edits for 2 minutes)
+- Sends a trigger via WebSocket to MCP server
+- MCP server spawns agent tasks (tagger → correlator → action tracker)
+- Agents run sequentially, updating index files
+- App watches index files and updates UI reactively
+- User sees tags/links/actions appear in sidebar without doing anything
+
+**On-Demand (Terminal)**
+- User opens terminal (Cmd+`), types natural language:
+  - `claude "what are my open action items?"`
+  - `claude "summarize this week's meetings"`
+  - `claude "what did Sarah say about the timeline?"`
+  - `claude "tag all my notes from this week"`
+  - `claude "find notes related to the API redesign"`
+- Claude Code uses MCP tools to read notes, search, and respond
+
+#### 3.3 New MCP Tools Needed
+
+| Tool | Purpose | Agent Use |
+|------|---------|-----------|
+| `list_notes` | List workspace files with date/tag filters | All agents |
+| `read_note` | Read specific note by path | All agents |
+| `get_tags` | Read current tag index | Correlator |
+| `set_tags` | Update tags for a note | Tagger |
+| `get_actions` | Get all action items across notes | Action Tracker |
+| `update_action` | Mark action as complete/stale | Action Tracker |
+| `get_links` | Get note link graph | Correlator |
+| `set_links` | Update links for a note | Correlator |
+| `search_notes` | Full-text search across all notes | On-demand queries |
+| `create_digest` | Generate daily/weekly digest | Digest Agent |
+| `get_note_context` | Get tags + links + actions for a note | UI panel population |
+
+#### 3.4 New MCP Resources Needed
+
+| Resource | Purpose |
+|----------|---------|
+| `note://file/{path}` | Read any note by path |
+| `note://today` | Today's notes |
+| `note://recent` | Notes from last 7 days |
+| `note://tags` | Full tag index |
+| `note://actions` | All open action items |
+| `note://digest/latest` | Most recent digest |
+
+#### 3.5 What the UI Shows
+
+**Sidebar additions:**
+- **Tags tab**: All tags with note counts, click to filter file list
+- **Actions tab**: Open action items across all notes, grouped by note, with age indicators
+- **Links section** (in AI panel): "Related Notes" when viewing a note
+
+**AI Panel additions:**
+- "Related Notes" section (from Correlator)
+- "Open Actions" badge on notes that have unresolved items
+- "Digest available" notification
+- Agent activity indicator: subtle "Organizing..." text when agents are running
+
+**Status bar:**
+- "Last organized: 5 min ago" (when agents last ran)
+- Tag count for current note
+
+#### 3.6 The Experience
+
+```
+Morning:
+1. Open Chronicle → see yesterday's digest in sidebar
+2. Click "Today's Note" → empty note with date header
+3. Join standup → type freely with markers
+4. Close note → auto-save, auto-commit
+5. 2 minutes later: tags appear, related notes link, action items indexed
+
+Afternoon:
+1. Open Chronicle → see today's 3 notes in sidebar
+2. Notice "2 overdue actions" badge
+3. Click it → see action items from this week
+4. Open terminal: "claude summarize my meetings this week"
+5. Claude reads all notes via MCP, generates cross-note summary
+
+Friday:
+1. Open Chronicle → weekly digest waiting
+2. Read: "8 meetings, 12 actions (5 new, 3 done, 4 carried), key themes: API redesign, Q3 planning"
+3. Process digest → structured overview of the week
+```
+
+#### 3.7 Technical Implementation
+
+**Agent orchestration:**
+- Agents are MCP tool calls chained together
+- Tagger: `list_notes(modified_since: last_run)` → for each: `read_note` → analyze → `set_tags`
+- Correlator: `get_tags` → find overlaps → `set_links`
+- Action Tracker: `list_notes` → for each: `read_note` → extract `[]` items → `update_action`
+- Digest: `list_notes(since: period)` → `read_note` each → `get_actions` → generate → `create_digest`
+
+**Index files (`.chronicle/`):**
+```
+.chronicle/
+├── tags.json          # {noteId: [tags], tagIndex: {tag: [noteIds]}}
+├── actions.json       # [{text, note, created, status, owner}]
+├── links.json         # {noteId: [relatedNoteIds]}
+├── digests/
+│   ├── 2026-02-22.md  # Daily digest
+│   └── 2026-W08.md    # Weekly digest
+└── agent-state.json   # Last run times, agent status
+```
+
+**Trigger mechanism:**
+- App idle timer (2 min no edits) → WebSocket push `agentTrigger` → MCP server runs agents
+- Scheduled via system cron or Tauri background task for digests
+- Manual via terminal: `claude "organize my notes"`
 
 ### Phase 4: Polish (1 week)
 **Goal: App feels professional**
 1. Focus mode (Cmd+Shift+F11)
 2. Templates (meeting, 1:1, standup)
 3. Export (PDF, clipboard)
-4. Weekly digest generation
-5. Onboarding flow for first launch
-6. MCP server as optional companion (for Claude Code users)
+4. Onboarding flow for first launch
+5. Agent configuration (which agents run, how often)
+6. MCP server health dashboard (connection status, last agent run, etc.)
 
 ---
 
@@ -395,21 +542,22 @@ Current shortcuts are minimal. Need:
 - [ ] Terminal as a primary pane (move to toggleable bottom drawer)
 
 ### Simplify
-- [ ] Processing: direct Claude API call instead of MCP round-trip
 - [ ] Workspace: one folder, auto-initialized, remembered forever
 - [ ] Git: silent auto-commits, no user-facing git UI
-- [ ] Sidebar: files + tags + recent (3 tabs, no workspace management)
+- [ ] Sidebar: files + tags + actions + recent (no workspace management)
 - [ ] Status bar: save state + word count + last edited (remove session duration)
 
-### Keep
-- [x] Marker system (>, !, ?, [], @) - this is Chronicle's unique value
+### Keep & Strengthen
+- [x] Marker system (>, !, ?, [], @) — Chronicle's unique capture UX
 - [x] Auto-save with debounce
 - [x] Git version control (silent, automatic)
 - [x] Structured AI output (TL;DR, Key Points, Actions, Questions)
 - [x] CodeMirror editor with markdown support
 - [x] Dark/light theme
 - [x] Keyboard-first design
-- [x] MCP server (but as optional companion, not core processing engine)
+- [x] **MCP server — core integration point for Claude Code agents**
+- [x] **Terminal — where users interact with Claude Code directly**
+- [x] **Processing via MCP — Claude API calls stay in the MCP server**
 
 ---
 
