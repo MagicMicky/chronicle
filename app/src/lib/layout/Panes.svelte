@@ -242,6 +242,7 @@
 
   .ai-output-pane {
     flex-shrink: 0;
+    min-width: 250px;
     animation: ai-slide-in 200ms ease-out;
   }
 
@@ -251,7 +252,6 @@
 
   @keyframes ai-slide-in {
     from {
-      width: 0 !important;
       opacity: 0.5;
     }
   }
@@ -290,11 +290,17 @@
     background: var(--hover-bg, #333);
   }
 
+  .collapsed-pane-btn:focus-visible {
+    outline: 2px solid var(--accent-color, #0078d4);
+    outline-offset: -2px;
+  }
+
   .collapsed-pane-btn.vertical {
-    width: 24px;
+    width: 32px;
     writing-mode: vertical-rl;
     text-orientation: mixed;
     border-right: 1px solid var(--border-color, #333);
+    flex-shrink: 0;
   }
 
   .collapsed-pane-btn.vertical.right {
@@ -303,12 +309,12 @@
   }
 
   .collapsed-label {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 1px;
     color: var(--text-muted, #888);
-    padding: 8px;
+    padding: 12px 4px;
   }
 
   /* Focus mode */

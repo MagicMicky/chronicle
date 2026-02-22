@@ -8,6 +8,12 @@
   import { actionsStore, initActionsListener } from '$lib/stores/actions';
   import { linksStore, initLinksListener } from '$lib/stores/links';
   import { agentStatusStore, initAgentListeners } from '$lib/stores/agentStatus';
+  import {
+    commandRunnerRequest,
+    openCommandRunner,
+    closeCommandRunner,
+    type CommandInfo,
+  } from '$lib/stores/commands';
   import { listen as tauriListen } from '@tauri-apps/api/event';
   import { hasOpenNote, isNoteDirty, noteStore, currentNote, loadLastSession, saveLastSession, openDailyNote } from '$lib/stores/note';
   import { workspaceStore, currentWorkspace, hasWorkspace } from '$lib/stores/workspace';
@@ -23,6 +29,10 @@
   import QuickOpen from '$lib/components/QuickOpen.svelte';
   import SearchModal from '$lib/components/SearchModal.svelte';
   import Onboarding from '$lib/components/Onboarding.svelte';
+  import ArchiveView from '$lib/components/ArchiveView.svelte';
+  import CommandRunner from '$lib/components/CommandRunner.svelte';
+  import ActionDashboard from '$lib/components/ActionDashboard.svelte';
+  import TranscriptModal from '$lib/components/TranscriptModal.svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -52,6 +62,14 @@
   let showQuickOpen = $state(false);
   let showSearch = $state(false);
   let showOnboarding = $state(false);
+  let showArchive = $state(false);
+  let showActionDashboard = $state(false);
+  let showTranscriptModal = $state(false);
+
+  // Command runner state driven by store
+  // undefined = closed, null = open with no preselection, CommandInfo = open with preselection
+  let commandRunnerState: CommandInfo | null | undefined = $state(undefined);
+  $effect(() => commandRunnerRequest.subscribe((v) => (commandRunnerState = v)));
 
   // Check onboarding on mount (set in onMount below)
   if (typeof localStorage !== 'undefined') {
@@ -117,7 +135,7 @@
         tagsUn();
         actionsUn();
         linksUn();
-        agentUns.forEach((fn) => fn());
+        agentUns.forEach((fn: () => void) => fn());
       } else {
         intelligenceCleanups.push(tagsUn, actionsUn, linksUn, ...agentUns);
       }
@@ -134,32 +152,19 @@
       tauriListen<{ task: string; note?: string; result: unknown }>('claude:task-completed', (event) => {
         if (event.payload.task === 'process') {
           aiOutputStore.setProcessing(false);
-          // Reload processed content from .chronicle/processed/
-          const note = get(currentNote);
-          const ws = get(currentWorkspace);
-          if (note?.path && ws?.path) {
-            // Trigger a re-render by briefly clearing then the effect in AIOutput will reload
-            aiOutputStore.clear();
-            // Small delay to let the file write settle
-            setTimeout(() => {
-              // Force re-open the same note to trigger processed load
-              const n = get(currentNote);
-              if (n) aiOutputStore.setResult({
-                path: n.path ?? '',
-                processedAt: new Date(),
-                summary: '',
-                style: 'standard',
-                tokens: { input: 0, output: 0 },
-                sections: null,
-              });
-            }, 500);
-          }
+          // Don't clear or set dummy result — the chronicle:processed-updated
+          // watcher event (or loadProcessedFromChronicle effect) will load the
+          // real result once Claude finishes writing the processed file.
         }
       }),
       tauriListen<{ task: string; error: string }>('claude:task-error', (event) => {
         if (event.payload.task === 'process') {
           aiOutputStore.setError(event.payload.error);
         }
+      }),
+      // Listen for claude:output-line to stream output to AI panel
+      tauriListen<{ line: string; is_stderr: boolean }>('claude:output-line', (event) => {
+        aiOutputStore.appendLine(event.payload.line);
       }),
       // Listen for chronicle:processed-updated to reload processed data
       tauriListen('chronicle:processed-updated', () => {
@@ -181,13 +186,18 @@
                     tokens: { input: 0, output: 0 },
                     sections: {
                       tldr: (d.tldr as string) ?? null,
-                      keyPoints: (d.keyPoints as string[]) ?? [],
-                      actions: ((d.actionItems as Array<{ text: string; owner?: string; done?: boolean }>) ?? []).map((a) => ({
+                      keyPoints: ((d.keyPoints as Array<any>) ?? []).map((kp: any) =>
+                        typeof kp === 'string' ? { text: kp } : { text: kp.text, sourceLines: kp.sourceLines }
+                      ),
+                      actions: ((d.actionItems as Array<{ text: string; owner?: string; done?: boolean; sourceLine?: number }>) ?? []).map((a) => ({
                         text: a.text,
                         owner: a.owner ?? null,
                         completed: a.done ?? false,
+                        sourceLine: a.sourceLine,
                       })),
-                      questions: (d.questions as string[]) ?? [],
+                      questions: ((d.questions as Array<any>) ?? []).map((q: any) =>
+                        typeof q === 'string' ? { text: q } : { text: q.text, sourceLine: q.sourceLine }
+                      ),
                       rawNotes: null,
                     },
                   });
@@ -256,6 +266,34 @@
       }
     }
     window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Listen for chronicle:toast custom events (e.g. from StatusBar process button)
+    const handleToastEvent = (e: CustomEvent) => {
+      const { type, message, duration } = e.detail;
+      if (type === 'warning') toast.warning(message, duration);
+      else if (type === 'error') toast.error(message, duration);
+      else if (type === 'success') toast.success(message, duration);
+      else toast.info(message, duration);
+    };
+    window.addEventListener('chronicle:toast', handleToastEvent as EventListener);
+
+    // Listen for custom event to open archive from Explorer
+    function handleShowArchive() {
+      showArchive = true;
+    }
+    document.addEventListener('chronicle:show-archive', handleShowArchive);
+
+    // Listen for custom event to open action dashboard
+    function handleShowActions() {
+      showActionDashboard = true;
+    }
+    window.addEventListener('chronicle:show-actions', handleShowActions);
+
+    // Listen for custom event to open transcript modal
+    function handlePasteTranscript() {
+      showTranscriptModal = true;
+    }
+    window.addEventListener('chronicle:paste-transcript', handlePasteTranscript);
 
     // Tauri native close-requested handler: save + commit before closing
     let closeUnlisten: UnlistenFn | undefined;
@@ -423,6 +461,25 @@
           });
         }
       }
+      // Cmd/Ctrl + Shift + H: Open Archive (History)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'H') {
+        e.preventDefault();
+        showArchive = !showArchive;
+      }
+      // Cmd/Ctrl + Shift + R: Toggle Command Runner
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'R') {
+        e.preventDefault();
+        if (commandRunnerState !== undefined) {
+          closeCommandRunner();
+        } else {
+          openCommandRunner();
+        }
+      }
+      // Cmd/Ctrl + Shift + T: Open Transcript Modal
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        showTranscriptModal = true;
+      }
     }
 
     document.addEventListener('keydown', handleKeyDown);
@@ -430,6 +487,10 @@
       destroyed = true;
       document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('chronicle:toast', handleToastEvent as EventListener);
+      document.removeEventListener('chronicle:show-archive', handleShowArchive);
+      window.removeEventListener('chronicle:show-actions', handleShowActions);
+      window.removeEventListener('chronicle:paste-transcript', handlePasteTranscript);
       mediaQuery.removeEventListener('change', handleSystemThemeChange);
       intelligenceCleanups.forEach((fn) => fn());
       claudeTaskCleanups.forEach((fn) => fn());
@@ -454,7 +515,24 @@
 <QuickOpen bind:show={showQuickOpen} />
 <SearchModal bind:show={showSearch} />
 <Onboarding bind:show={showOnboarding} />
+<ArchiveView bind:show={showArchive} />
 <Toasts />
+
+{#if commandRunnerState !== undefined}
+  <CommandRunner
+    onclose={closeCommandRunner}
+    preselectedCommand={commandRunnerState}
+  />
+{/if}
+
+{#if showActionDashboard}
+  <ActionDashboard onClose={() => (showActionDashboard = false)} />
+{/if}
+
+<TranscriptModal
+  show={showTranscriptModal}
+  onClose={() => (showTranscriptModal = false)}
+/>
 
 <style>
   .app-container {

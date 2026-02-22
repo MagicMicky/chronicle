@@ -1,4 +1,5 @@
 pub mod appstate;
+pub mod archive;
 pub mod chronicle;
 pub mod claude;
 pub mod file;
@@ -8,6 +9,7 @@ pub mod session;
 pub mod workspace;
 
 pub use appstate::*;
+pub use archive::*;
 pub use chronicle::*;
 pub use claude::*;
 pub use file::*;

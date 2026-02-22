@@ -16,6 +16,7 @@
   let webLinksAddon: WebLinksAddon | null = null;
   let pty: Pty | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let autoLaunchTimeout: ReturnType<typeof setTimeout> | null = null;
   let initialized = false;
 
   // Track dimensions to avoid unnecessary resizes
@@ -32,6 +33,7 @@
     // Use rAF to sync with browser render cycle - more responsive than setTimeout
     requestAnimationFrame(() => {
       resizeScheduled = false;
+      if (!terminal || !fitAddon) return;
       fitTerminal();
     });
   }
@@ -150,7 +152,8 @@
       terminalStore.setSpawned(workspacePath);
 
       // Auto-launch Claude Code after shell is ready
-      setTimeout(() => {
+      autoLaunchTimeout = setTimeout(() => {
+        autoLaunchTimeout = null;
         pty?.write('claude\n');
       }, 500);
     } catch (error) {
@@ -209,6 +212,7 @@
   onDestroy(() => {
     unsubWorkspace?.();
     unsubTerminal?.();
+    if (autoLaunchTimeout) clearTimeout(autoLaunchTimeout);
     resizeObserver?.disconnect();
     window.removeEventListener('resize', debouncedFit);
     pty?.kill();

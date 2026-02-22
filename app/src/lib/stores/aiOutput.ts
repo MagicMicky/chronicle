@@ -5,18 +5,48 @@ import { uiStore } from '$lib/stores/ui';
 // Claude CLI availability status (replaces old WebSocket MCP connection status)
 export const isMcpConnected = writable<boolean>(false);
 
+export interface KeyPoint {
+  text: string;
+  sourceLines?: number[];
+}
+
 export interface ActionItem {
   text: string;
   owner: string | null;
   completed: boolean;
+  sourceLine?: number;
+}
+
+export interface Question {
+  text: string;
+  sourceLine?: number;
+}
+
+export interface EntityPerson {
+  name: string;
+  role?: string;
+  markers?: string[];
+}
+
+export interface EntityDecision {
+  text: string;
+  participants?: string[];
+}
+
+export interface Entities {
+  people?: EntityPerson[];
+  decisions?: EntityDecision[];
+  topics?: string[];
+  references?: string[];
 }
 
 export interface ParsedSections {
   tldr: string | null;
-  keyPoints: string[];
+  keyPoints: KeyPoint[];
   actions: ActionItem[];
-  questions: string[];
+  questions: Question[];
   rawNotes: string | null;
+  entities?: Entities;
 }
 
 export interface AIResult {
@@ -33,6 +63,7 @@ interface AIOutputState {
   isProcessing: boolean;
   error: string | null;
   isLoadingSections: boolean;
+  streamLines: string[];
 }
 
 const defaultState: AIOutputState = {
@@ -40,6 +71,7 @@ const defaultState: AIOutputState = {
   isProcessing: false,
   error: null,
   isLoadingSections: false,
+  streamLines: [],
 };
 
 // Track whether user manually toggled the AI panel (overrides auto behavior until next file switch)
@@ -62,6 +94,11 @@ export function setAIPanelManualOverride() {
   manualOverride = true;
 }
 
+/** Check if user manually overrode panel state */
+export function isManuallyOverridden(): boolean {
+  return manualOverride;
+}
+
 function createAIOutputStore() {
   const { subscribe, set, update } = writable<AIOutputState>(defaultState);
 
@@ -75,7 +112,8 @@ function createAIOutputStore() {
         manualOverride = false;
         autoExpandAIPanel();
       }
-      update((s) => ({ ...s, isProcessing, error: null }));
+      // Clear streamLines when starting OR ending processing
+      update((s) => ({ ...s, isProcessing, error: null, streamLines: isProcessing ? [] : [] }));
     },
 
     // Set result from processing
@@ -90,6 +128,14 @@ function createAIOutputStore() {
 
     // Clear all state
     clear: () => set(defaultState),
+
+    // Append a streaming output line
+    appendLine: (line: string) =>
+      update((s) => ({ ...s, streamLines: [...s.streamLines, line] })),
+
+    // Clear stream lines
+    clearStream: () =>
+      update((s) => ({ ...s, streamLines: [] })),
 
     // Load parsed sections from the processed file
     loadSections: async (fullPath: string) => {
@@ -142,6 +188,10 @@ export const hasProcessedContent = derived(
 export const isLoadingSections = derived(
   aiOutputStore,
   ($s) => $s.isLoadingSections
+);
+export const aiStreamLines = derived(
+  aiOutputStore,
+  ($s) => $s.streamLines
 );
 
 // Check Claude CLI availability on startup

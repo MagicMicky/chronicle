@@ -80,6 +80,22 @@ pub fn run() {
             // Template commands
             commands::list_templates,
             commands::create_from_template,
+            // Workspace memory commands
+            commands::read_context,
+            // Custom workflow commands
+            commands::list_commands,
+            commands::run_custom_command,
+            // Action dashboard commands
+            commands::read_actions_file,
+            commands::update_action_status,
+            // Digest commands
+            commands::generate_digest,
+            commands::list_digests,
+            // Archive commands
+            commands::list_processed_notes,
+            // Entity commands
+            commands::read_entities,
+            commands::list_all_entities,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

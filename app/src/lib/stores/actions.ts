@@ -1,9 +1,8 @@
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { currentWorkspace } from './workspace';
 
-export interface ActionEntry {
+export interface ActionItem {
   text: string;
   owner: string;
   source: string;
@@ -13,11 +12,17 @@ export interface ActionEntry {
 }
 
 interface ActionsState {
-  items: ActionEntry[];
+  actions: ActionItem[];
+  lastLoaded: Date | null;
+  isLoading: boolean;
+  error: string | null;
 }
 
 const defaultState: ActionsState = {
-  items: [],
+  actions: [],
+  lastLoaded: null,
+  isLoading: false,
+  error: null,
 };
 
 function createActionsStore() {
@@ -26,18 +31,58 @@ function createActionsStore() {
   return {
     subscribe,
 
+    /** Load actions from .chronicle/actions.json via Rust command */
     load: async () => {
-      const ws = get(currentWorkspace);
-      if (!ws) return;
+      const workspace = get(currentWorkspace);
+      if (!workspace) return;
 
+      update((s) => ({ ...s, isLoading: true, error: null }));
       try {
-        const data = await invoke<ActionEntry[]>('read_actions', { workspacePath: ws.path });
+        const raw = await invoke<string>('read_actions_file', {
+          workspacePath: workspace.path,
+        });
+        const parsed: ActionItem[] = JSON.parse(raw);
         update((s) => ({
           ...s,
-          items: Array.isArray(data) ? data : [],
+          actions: parsed,
+          lastLoaded: new Date(),
+          isLoading: false,
         }));
-      } catch {
-        // Actions file may not exist yet
+      } catch (e) {
+        // File may not exist yet — that is fine
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes('not found') || msg.includes('No such file') || msg.includes('Failed to read')) {
+          update((s) => ({ ...s, actions: [], lastLoaded: new Date(), isLoading: false }));
+        } else {
+          update((s) => ({ ...s, isLoading: false, error: msg }));
+        }
+      }
+    },
+
+    /** Toggle a single action between open and done */
+    toggleStatus: async (index: number) => {
+      const workspace = get(currentWorkspace);
+      if (!workspace) return;
+
+      const state = get({ subscribe });
+      const action = state.actions[index];
+      if (!action) return;
+
+      const newStatus = action.status === 'done' ? 'open' : 'done';
+
+      try {
+        await invoke('update_action_status', {
+          workspacePath: workspace.path,
+          actionIndex: index,
+          newStatus,
+        });
+        // Optimistic update
+        update((s) => ({
+          ...s,
+          actions: s.actions.map((a, i) => (i === index ? { ...a, status: newStatus } : a)),
+        }));
+      } catch (e) {
+        console.error('Failed to update action status:', e);
       }
     },
 
@@ -47,43 +92,68 @@ function createActionsStore() {
 
 export const actionsStore = createActionsStore();
 
-export const actionItems = derived(actionsStore, ($s) => $s.items);
+// Derived stores
+export const actionItems = derived(actionsStore, ($s) => $s.actions);
+export const actionsLastLoaded = derived(actionsStore, ($s) => $s.lastLoaded);
 
-export const openActions = derived(actionsStore, ($s) =>
-  $s.items.filter((a) => a.status === 'open')
+export const openActions = derived(actionItems, ($items) =>
+  $items.filter((a) => a.status === 'open')
 );
 
-export const staleActions = derived(actionsStore, ($s) =>
-  $s.items.filter((a) => a.status === 'stale')
+export const overdueActions = derived(actionItems, ($items) =>
+  $items.filter((a) => {
+    if (a.status !== 'open') return false;
+    const created = new Date(a.created);
+    const daysOld = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+    return daysOld > 7;
+  })
 );
 
-export const actionCounts = derived(actionsStore, ($s) => {
-  let open = 0;
-  let done = 0;
-  let stale = 0;
-  for (const a of $s.items) {
-    if (a.status === 'open') open++;
-    else if (a.status === 'done') done++;
-    else if (a.status === 'stale') stale++;
-  }
-  return { open, done, stale };
-});
+export const doneActions = derived(actionItems, ($items) =>
+  $items.filter((a) => a.status === 'done')
+);
+
+export const actionSummary = derived(
+  [openActions, overdueActions, doneActions],
+  ([$open, $overdue, $done]) => ({
+    open: $open.length,
+    overdue: $overdue.length,
+    done: $done.length,
+    total: $open.length + $overdue.length + $done.length,
+  })
+);
+
+/** Alias for ActionItem used in Explorer */
+export type ActionEntry = ActionItem;
+
+/** Action counts derived store */
+export const actionCounts = derived(
+  [openActions, overdueActions, doneActions],
+  ([$open, $overdue, $done]) => ({
+    open: $open.length,
+    overdue: $overdue.length,
+    done: $done.length,
+  })
+);
 
 /** Actions grouped by source note */
-export const actionsByNote = derived(actionsStore, ($s) => {
-  const map = new Map<string, ActionEntry[]>();
-  for (const item of $s.items) {
-    if (item.status === 'done') continue;
-    const existing = map.get(item.source) ?? [];
-    existing.push(item);
-    map.set(item.source, existing);
+export const actionsByNote = derived(actionItems, ($items) => {
+  const map = new Map<string, ActionItem[]>();
+  for (const item of $items) {
+    const key = item.source || 'unknown';
+    const list = map.get(key) ?? [];
+    list.push(item);
+    map.set(key, list);
   }
   return map;
 });
 
-/** Initialize event listener for actions updates */
-export async function initActionsListener(): Promise<UnlistenFn> {
-  return listen('chronicle:actions-updated', () => {
-    actionsStore.load();
-  });
+/** Initialize actions listener for filesystem watch events */
+export function initActionsListener(): () => void {
+  // Load initially
+  actionsStore.load();
+
+  // No additional file watcher needed — actions are loaded on demand
+  // Return a no-op cleanup function
+  return () => {};
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Copy } from 'lucide-svelte';
   import { toast } from '$lib/stores/toast';
+  import Markdown from '$lib/components/Markdown.svelte';
 
   interface Props {
     tldr: string | null;
@@ -27,7 +28,7 @@
         <Copy size={12} />
       </button>
     </div>
-    <p class="summary-text">{tldr}</p>
+    <Markdown content={tldr} />
   </section>
 {/if}
 
@@ -71,10 +72,4 @@
     color: var(--text-primary, #fff);
   }
 
-  .summary-text {
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--text-primary, #e0e0e0);
-    margin: 0;
-  }
 </style>

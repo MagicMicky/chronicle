@@ -186,14 +186,18 @@
       e.preventDefault();
     }
     if (e.key === 'ArrowDown') {
-      selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
+      if (results.length > 0) {
+        selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
+      }
       e.preventDefault();
     }
     if (e.key === 'ArrowUp') {
-      selectedIndex = Math.max(selectedIndex - 1, 0);
+      if (results.length > 0) {
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+      }
       e.preventDefault();
     }
-    if (e.key === 'Enter' && results.length > 0) {
+    if (e.key === 'Enter' && results.length > 0 && selectedIndex >= 0 && selectedIndex < results.length) {
       openResult(results[selectedIndex]);
       e.preventDefault();
     }

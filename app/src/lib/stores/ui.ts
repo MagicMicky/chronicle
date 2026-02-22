@@ -79,7 +79,7 @@ function createUIStore() {
     setExplorerWidth: (width: number) =>
       updateAndPersist((state) => ({ ...state, explorerWidth: Math.max(150, Math.min(500, width)) })),
     setAIOutputWidth: (width: number) =>
-      updateAndPersist((state) => ({ ...state, aiOutputWidth: Math.max(200, Math.min(600, width)) })),
+      updateAndPersist((state) => ({ ...state, aiOutputWidth: Math.max(250, Math.min(600, width)) })),
     setTerminalHeight: (height: number) =>
       updateAndPersist((state) => ({ ...state, terminalHeight: Math.max(150, Math.min(500, height)) })),
     toggleCollapse: (pane: 'explorer' | 'aiOutput' | 'terminal') =>

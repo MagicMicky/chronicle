@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
+  import { invoke } from '@tauri-apps/api/core';
   import { getInvoke } from '$lib/utils/tauri';
   import { uiStore } from '$lib/stores/ui';
   import {
@@ -23,9 +24,21 @@
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import type { MenuItem } from '$lib/components/ContextMenu.svelte';
   import TemplateSelector from '$lib/components/TemplateSelector.svelte';
-  import { FolderOpen, Plus, Minus, CalendarDays, ChevronRight, ChevronDown, FileText, Tag, CircleAlert, CircleCheck, Clock, Copy } from 'lucide-svelte';
-  import { tagsStore, tagsList, selectedTag, tagFilteredPaths } from '$lib/stores/tags';
+  import { FolderOpen, Plus, Minus, CalendarDays, ChevronRight, ChevronDown, FileText, Tag, CircleAlert, CircleCheck, Clock, Copy, Wand2, Users, Gavel, Hash, Notebook } from 'lucide-svelte';
+  import { isAgentsRunning } from '$lib/stores/agentStatus';
+  import { claudeInstalled } from '$lib/stores/claudeStatus';
+  import { tagsStore, tagsList, selectedTag, tagFilteredPaths, tagsGrouped, tagCategories } from '$lib/stores/tags';
   import { actionsStore, actionCounts, actionsByNote } from '$lib/stores/actions';
+  import { getTagColor, getTagBgColor, parseTag, type TagCategory } from '$lib/utils/tagColors';
+  import { archiveNoteCount, archiveStore } from '$lib/stores/archive';
+  import {
+    commandsStore,
+    availableCommands,
+    openCommandRunner,
+    type CommandInfo,
+  } from '$lib/stores/commands';
+  import { digestsStore, availableDigests, isGeneratingDigest, type DigestInfo } from '$lib/stores/digests';
+  import { entitiesStore, knownPeople, knownDecisions, knownTopics, type Person, type Decision } from '$lib/stores/entities';
 
   let files: FileNode[] = [];
   let currentFilePath: string | null = null;
@@ -56,15 +69,51 @@
   let recentExpanded = true;
   let tagsExpanded = false;
   let actionsExpanded = false;
+  let entitiesExpanded = false;
+  let commandsExpanded = false;
+  let digestsExpanded = false;
   let filesExpanded = true;
 
-  let tags: { tag: string; count: number }[] = [];
+  let agentsRunning = false;
+  let claude = false;
+  isAgentsRunning.subscribe((r) => (agentsRunning = r));
+  claudeInstalled.subscribe((c) => (claude = c));
+
+  let tags: { tag: string; count: number; category: string | null; name: string }[] = [];
+  let grouped: { key: string | null; label: string; tags: typeof tags }[] = [];
+  let cats: Record<string, TagCategory> = {};
   let currentSelectedTag: string | null = null;
   let filteredPaths: Set<string> | null = null;
-  let counts = { open: 0, done: 0, stale: 0 };
+  let showAllTags = false;
+  let counts = { open: 0, done: 0, overdue: 0 };
   let actionsBySource = new Map<string, import('$lib/stores/actions').ActionEntry[]>();
 
+  // Archive
+  let processedCount = 0;
+  archiveNoteCount.subscribe((c) => (processedCount = c));
+
+  // Commands
+  let commands: CommandInfo[] = [];
+  availableCommands.subscribe((c) => (commands = c));
+
+  // Digests
+  let digests: DigestInfo[] = [];
+  let digestGenerating = false;
+  let digestDropdownVisible = false;
+  availableDigests.subscribe((d) => (digests = d));
+  isGeneratingDigest.subscribe((g) => (digestGenerating = g));
+
+  // Entities
+  let entityPeople: Person[] = [];
+  let entityDecisions: Decision[] = [];
+  let entityTopics: string[] = [];
+  knownPeople.subscribe((p) => (entityPeople = p));
+  knownDecisions.subscribe((d) => (entityDecisions = d));
+  knownTopics.subscribe((t) => (entityTopics = t));
+
   tagsList.subscribe((t) => (tags = t));
+  tagsGrouped.subscribe((g) => (grouped = g));
+  tagCategories.subscribe((c) => (cats = c));
   selectedTag.subscribe((t) => (currentSelectedTag = t));
   tagFilteredPaths.subscribe((p) => (filteredPaths = p));
   actionCounts.subscribe((c) => (counts = c));
@@ -88,6 +137,7 @@
     }, []);
   }
 
+  $: filteredFileCount = filteredPaths ? filteredPaths.size : 0;
   $: displayFiles = filterFiles(files, filteredPaths);
 
   function handleTagClick(tag: string) {
@@ -115,6 +165,10 @@
     fileCount = w?.fileCount ?? 0;
     if (w) {
       fileStatusStore.refresh();
+      archiveStore.load(w.path);
+      commandsStore.load(w.path);
+      digestsStore.load(w.path);
+      entitiesStore.loadAll(w.path);
     }
   });
   recentWorkspaces.subscribe((r) => (recentWs = r));
@@ -452,6 +506,46 @@
       toast.error('Failed to copy actions');
     }
   }
+
+  async function handleOrganize() {
+    if (!claude) {
+      toast.warning('Claude Code not found. Install it to use AI features.');
+      return;
+    }
+    if (!wsPath || agentsRunning) return;
+    try {
+      await invoke('run_background_agents', { workspacePath: wsPath });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Organize failed: ${msg}`);
+    }
+  }
+
+  function handleOpenArchive() {
+    document.dispatchEvent(new CustomEvent('chronicle:show-archive'));
+  }
+
+  function handleDigestGenerate(range: string) {
+    digestDropdownVisible = false;
+    if (!wsPath) return;
+    digestsStore.generate(wsPath, range);
+    toast.success(`Generating ${range} digest...`);
+  }
+
+  function toggleDigestDropdown(e: Event) {
+    e.stopPropagation();
+    digestDropdownVisible = !digestDropdownVisible;
+  }
+
+  function handleDigestClick(digest: DigestInfo) {
+    handleFileClick(digest.path);
+  }
+
+  function formatDigestDate(timestamp: number): string {
+    if (!timestamp) return '';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
 </script>
 
 <div class="explorer">
@@ -465,6 +559,19 @@
     </span>
     <div class="header-actions">
       {#if isOpen}
+        <button
+          class="action-btn organize-btn"
+          on:click={handleOrganize}
+          disabled={agentsRunning || !claude}
+          title={!claude ? 'Install Claude Code for AI features' : agentsRunning ? 'Organizing...' : 'Organize notes (tag & extract actions)'}
+          aria-label="Organize notes"
+        >
+          {#if agentsRunning}
+            <span class="btn-spinner"></span>
+          {:else}
+            <Wand2 size={14} />
+          {/if}
+        </button>
         <button
           class="action-btn"
           bind:this={newNoteBtn}
@@ -545,20 +652,33 @@
         </button>
         {#if tagsExpanded}
           <div class="tags-content">
-            {#if tags.length > 0}
-              <div class="tags-list">
-                {#each tags as { tag, count } (tag)}
-                  <button
-                    class="tag-pill"
-                    class:active={currentSelectedTag === tag}
-                    on:click={() => handleTagClick(tag)}
-                    title="{count} note{count !== 1 ? 's' : ''}"
-                  >
-                    <span class="tag-name">#{tag}</span>
-                    <span class="tag-count">{count}</span>
-                  </button>
-                {/each}
-              </div>
+            {#if grouped.length > 0}
+              {#each grouped as group (group.key ?? '__uncategorized')}
+                <div class="tag-group">
+                  {#if grouped.length > 1}
+                    <span class="tag-group-label" style="color: {group.key && cats[group.key] ? cats[group.key].color : 'var(--text-muted, #888)'};">{group.label}</span>
+                  {/if}
+                  <div class="tags-list">
+                    {#each (showAllTags ? group.tags : group.tags.slice(0, 8)) as { tag, count, name } (tag)}
+                      <button
+                        class="tag-pill"
+                        class:active={currentSelectedTag === tag}
+                        on:click={() => handleTagClick(tag)}
+                        title="{tag} — {count} note{count !== 1 ? 's' : ''}"
+                        style="border-color: {getTagColor(tag, cats)}; background: {currentSelectedTag === tag ? getTagColor(tag, cats) : getTagBgColor(tag, cats)}; {currentSelectedTag === tag ? 'color: #fff;' : `color: ${getTagColor(tag, cats)};`}"
+                      >
+                        <span class="tag-name">#{name}</span>
+                        <span class="tag-count">{count}</span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+              {#if tags.length > 8}
+                <button class="tags-toggle" on:click={() => (showAllTags = !showAllTags)}>
+                  {showAllTags ? 'Show less' : `+${tags.length - Math.min(grouped.reduce((s, g) => s + Math.min(g.tags.length, 8), 0), tags.length)} more`}
+                </button>
+              {/if}
             {:else}
               <div class="section-empty">
                 <span class="empty-text">No tags yet</span>
@@ -580,11 +700,11 @@
             {/if}
           </span>
           <span class="section-title">Actions</span>
-          {#if counts.open + counts.stale > 0}
+          {#if counts.open + counts.overdue > 0}
             <span class="section-count actions-count">
-              {counts.open + counts.stale}
-              {#if counts.stale > 0}
-                <span class="stale-badge">{counts.stale}</span>
+              {counts.open + counts.overdue}
+              {#if counts.overdue > 0}
+                <span class="stale-badge">{counts.overdue}</span>
               {/if}
             </span>
             <span
@@ -642,6 +762,199 @@
           </div>
         {/if}
       </div>
+
+      <!-- Entities Section -->
+      {#if entityPeople.length > 0 || entityDecisions.length > 0 || entityTopics.length > 0}
+        <div class="section">
+          <button class="section-header" on:click={() => (entitiesExpanded = !entitiesExpanded)}>
+            <span class="section-chevron">
+              {#if entitiesExpanded}
+                <ChevronDown size={12} />
+              {:else}
+                <ChevronRight size={12} />
+              {/if}
+            </span>
+            <span class="section-title">Entities</span>
+          </button>
+          {#if !entitiesExpanded}
+            <div class="entities-summary">
+              {#if entityPeople.length > 0}
+                <span class="entity-stat"><Users size={11} /> {entityPeople.length} people</span>
+              {/if}
+              {#if entityDecisions.length > 0}
+                <span class="entity-stat"><Gavel size={11} /> {entityDecisions.length} decisions</span>
+              {/if}
+              {#if entityTopics.length > 0}
+                <span class="entity-stat"><Hash size={11} /> {entityTopics.length} topics</span>
+              {/if}
+            </div>
+          {/if}
+          {#if entitiesExpanded}
+            <div class="entities-content">
+              {#if entityPeople.length > 0}
+                <div class="entity-group">
+                  <span class="entity-group-label"><Users size={11} /> People ({entityPeople.length})</span>
+                  <div class="entity-group-list">
+                    {#each entityPeople as person (person.name)}
+                      <div class="entity-person">
+                        <span class="entity-person-name">{person.name}</span>
+                        {#if person.role}
+                          <span class="entity-person-role">{person.role}</span>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if entityDecisions.length > 0}
+                <div class="entity-group">
+                  <span class="entity-group-label"><Gavel size={11} /> Decisions ({entityDecisions.length})</span>
+                  <div class="entity-group-list">
+                    {#each entityDecisions as decision}
+                      <div class="entity-decision">
+                        <span class="entity-decision-text">{decision.text}</span>
+                        {#if decision.participants?.length}
+                          <span class="entity-decision-who">{decision.participants.join(', ')}</span>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if entityTopics.length > 0}
+                <div class="entity-group">
+                  <span class="entity-group-label"><Hash size={11} /> Topics ({entityTopics.length})</span>
+                  <div class="entity-topics-list">
+                    {#each entityTopics as topic (topic)}
+                      <span class="entity-topic-pill">{topic}</span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Commands Section -->
+      {#if commands.length > 0}
+        <div class="section">
+          <button class="section-header" on:click={() => (commandsExpanded = !commandsExpanded)}>
+            <span class="section-chevron">
+              {#if commandsExpanded}
+                <ChevronDown size={12} />
+              {:else}
+                <ChevronRight size={12} />
+              {/if}
+            </span>
+            <span class="section-title">Commands</span>
+            <span class="section-count">({commands.length})</span>
+          </button>
+          {#if commandsExpanded}
+            <div class="commands-list">
+              {#each commands as cmd}
+                <button
+                  class="command-entry"
+                  title={cmd.description}
+                  on:click={() => openCommandRunner(cmd)}
+                >
+                  <span class="command-icon">&#9655;</span>
+                  <span class="command-name">{cmd.name}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Digests Section -->
+      <div class="section">
+        <button class="section-header" on:click={() => (digestsExpanded = !digestsExpanded)}>
+          <span class="section-chevron">
+            {#if digestsExpanded}
+              <ChevronDown size={12} />
+            {:else}
+              <ChevronRight size={12} />
+            {/if}
+          </span>
+          <span class="section-title">Digests</span>
+          {#if digests.length > 0}
+            <span class="section-count">({digests.length})</span>
+          {/if}
+          <span
+            class="section-generate-btn"
+            role="button"
+            tabindex="0"
+            on:click={toggleDigestDropdown}
+            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDigestDropdown(e); } }}
+            title="Generate digest"
+            aria-label="Generate Digest"
+          >
+            {#if digestGenerating}
+              <span class="digest-spinner"></span>
+            {:else}
+              <Plus size={11} />
+            {/if}
+          </span>
+        </button>
+        {#if digestDropdownVisible}
+          <div class="digest-dropdown">
+            <button class="digest-dropdown-item" on:click={() => handleDigestGenerate('daily')}>
+              Daily
+            </button>
+            <button class="digest-dropdown-item" on:click={() => handleDigestGenerate('weekly')}>
+              Weekly
+            </button>
+            <button class="digest-dropdown-item" on:click={() => handleDigestGenerate('monthly')}>
+              Monthly
+            </button>
+          </div>
+        {/if}
+        {#if digestsExpanded}
+          <div class="digests-content">
+            {#if digests.length > 0}
+              {#each digests as digest (digest.filename)}
+                <button
+                  class="digest-item"
+                  on:click={() => handleDigestClick(digest)}
+                  title={digest.path}
+                >
+                  <span class="digest-icon"><Notebook size={12} /></span>
+                  <span class="digest-title">{digest.title}</span>
+                  <span class="digest-date">{formatDigestDate(digest.modifiedAt)}</span>
+                </button>
+              {/each}
+            {:else}
+              <div class="section-empty">
+                <span class="empty-text">No digests yet</span>
+                <span class="empty-hint">Generate a digest to summarize your notes</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <!-- Archive Section -->
+      <div class="archive-section">
+        <button class="archive-btn" on:click={handleOpenArchive} title="Open Archive (Cmd+Shift+H)">
+          <span class="archive-icon">&#128218;</span>
+          <span class="archive-label">Archive</span>
+          {#if processedCount > 0}
+            <span class="archive-count">{processedCount}</span>
+          {/if}
+        </button>
+      </div>
+
+      <!-- Tag Filter Bar -->
+      {#if currentSelectedTag}
+        <div class="tag-filter-bar" style="border-left: 3px solid {getTagColor(currentSelectedTag, cats)};">
+          <span class="filter-label">
+            Filtered by <span class="filter-tag" style="color: {getTagColor(currentSelectedTag, cats)};">#{parseTag(currentSelectedTag).name}</span>
+          </span>
+          <span class="filter-count">{filteredFileCount} file{filteredFileCount !== 1 ? 's' : ''}</span>
+          <button class="filter-clear" on:click={() => tagsStore.selectTag(null)}>Clear</button>
+        </div>
+      {/if}
 
       <!-- Files Section -->
       <div class="section section-files">
@@ -1003,6 +1316,20 @@
     padding: 6px 12px;
   }
 
+  .tag-group {
+    margin-bottom: 6px;
+  }
+
+  .tag-group-label {
+    display: block;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+    opacity: 0.8;
+  }
+
   .tags-list {
     display: flex;
     flex-wrap: wrap;
@@ -1013,25 +1340,20 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 8px;
-    font-size: 11px;
-    background: var(--hover-bg, #2a2a2a);
-    border: 1px solid var(--border-color, #333);
+    padding: 1px 6px;
+    font-size: 10px;
+    border: 1px solid;
     border-radius: 12px;
-    color: var(--text-secondary, #ccc);
     cursor: pointer;
     transition: all 0.15s;
   }
 
   .tag-pill:hover {
-    background: var(--border-color, #333);
-    border-color: var(--text-muted, #888);
+    filter: brightness(1.15);
   }
 
-  .tag-pill.active {
-    background: var(--accent-color, #0078d4);
-    border-color: var(--accent-color, #0078d4);
-    color: #fff;
+  .tag-pill.active .tag-count {
+    opacity: 0.9;
   }
 
   .tag-name {
@@ -1039,12 +1361,64 @@
   }
 
   .tag-count {
-    font-size: 10px;
+    font-size: 9px;
     opacity: 0.7;
   }
 
-  .tag-pill.active .tag-count {
-    opacity: 0.9;
+  .tags-toggle {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: var(--text-muted, #888);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  .tags-toggle:hover {
+    color: var(--text-primary, #fff);
+    background: var(--hover-bg, #333);
+  }
+
+  /* Tag filter bar */
+  .tag-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    background: var(--header-bg, #252525);
+    border-bottom: 1px solid var(--border-color, #333);
+    font-size: 11px;
+  }
+
+  .filter-label {
+    color: var(--text-muted, #888);
+  }
+
+  .filter-tag {
+    font-weight: 600;
+  }
+
+  .filter-count {
+    color: var(--text-muted, #666);
+    margin-left: auto;
+  }
+
+  .filter-clear {
+    padding: 1px 6px;
+    font-size: 10px;
+    color: var(--text-muted, #888);
+    background: var(--hover-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .filter-clear:hover {
+    color: var(--text-primary, #fff);
+    background: var(--border-color, #333);
   }
 
   /* Actions section */
@@ -1139,6 +1513,25 @@
     flex-shrink: 0;
   }
 
+  .organize-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .organize-btn .btn-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid rgba(136, 136, 136, 0.3);
+    border-top-color: var(--accent-color, #0078d4);
+    border-radius: 50%;
+    animation: btn-spin 0.8s linear infinite;
+  }
+
+  @keyframes btn-spin {
+    to { transform: rotate(360deg); }
+  }
+
   .filter-indicator {
     display: inline-flex;
     align-items: center;
@@ -1165,5 +1558,283 @@
     color: var(--text-muted, #666);
     opacity: 0.7;
     text-align: center;
+  }
+
+  /* Entities section */
+  .entities-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 12px 6px 24px;
+  }
+
+  .entity-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-muted, #888);
+  }
+
+  .entities-content {
+    padding: 4px 0 6px 0;
+  }
+
+  .entity-group {
+    margin-bottom: 8px;
+  }
+
+  .entity-group-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 12px 2px 24px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #888);
+  }
+
+  .entity-group-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 0;
+  }
+
+  .entity-person,
+  .entity-decision {
+    display: flex;
+    flex-direction: column;
+    padding: 2px 12px 2px 36px;
+    font-size: 12px;
+  }
+
+  .entity-person-name {
+    color: var(--text-secondary, #ccc);
+    font-weight: 500;
+  }
+
+  .entity-person-role {
+    font-size: 11px;
+    color: var(--text-muted, #888);
+    font-style: italic;
+  }
+
+  .entity-decision-text {
+    color: var(--text-secondary, #ccc);
+    line-height: 1.3;
+  }
+
+  .entity-decision-who {
+    font-size: 11px;
+    color: var(--text-muted, #888);
+  }
+
+  .entity-topics-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 12px 4px 36px;
+  }
+
+  .entity-topic-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    font-size: 11px;
+    background: var(--hover-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 12px;
+    color: var(--text-secondary, #ccc);
+  }
+
+  /* Commands section */
+  .commands-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .command-entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 24px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .command-entry:hover {
+    background: var(--hover-bg, #333);
+  }
+
+  .command-icon {
+    font-size: 10px;
+    color: var(--accent-color, #0078d4);
+  }
+
+  .command-entry .command-name {
+    font-size: 12px;
+    color: var(--text-secondary, #ccc);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Digests section */
+  .section-generate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #666);
+    cursor: pointer;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .section-header:hover .section-generate-btn {
+    opacity: 1;
+  }
+
+  .section-generate-btn:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-primary, #fff);
+  }
+
+  .digest-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid rgba(0, 120, 212, 0.3);
+    border-top-color: var(--accent-color, #0078d4);
+    border-radius: 50%;
+    animation: digest-spin 0.8s linear infinite;
+  }
+
+  @keyframes digest-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .digest-dropdown {
+    display: flex;
+    flex-direction: column;
+    background: var(--pane-bg, #1e1e1e);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 4px;
+    margin: 2px 12px;
+    overflow: hidden;
+  }
+
+  .digest-dropdown-item {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #ccc);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .digest-dropdown-item:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-primary, #fff);
+  }
+
+  .digests-content {
+    display: flex;
+    flex-direction: column;
+    padding: 2px 0;
+  }
+
+  .digest-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #ccc);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  .digest-item:hover {
+    background: var(--hover-bg, #333);
+  }
+
+  .digest-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--accent-color, #0078d4);
+  }
+
+  .digest-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .digest-date {
+    font-size: 10px;
+    color: var(--text-muted, #666);
+    flex-shrink: 0;
+  }
+
+  /* Archive section */
+  .archive-section {
+    border-top: 1px solid var(--border-color, #333);
+    padding: 8px;
+    flex-shrink: 0;
+  }
+
+  .archive-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 12px;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-secondary, #ccc);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .archive-btn:hover {
+    background: var(--hover-bg, #333);
+  }
+
+  .archive-icon {
+    font-size: 14px;
+  }
+
+  .archive-label {
+    flex: 1;
+  }
+
+  .archive-count {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--border-color, #333);
+    color: var(--text-muted, #888);
+    font-weight: 600;
   }
 </style>

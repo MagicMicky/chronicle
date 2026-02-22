@@ -2,11 +2,10 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { EditorState } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
-  import { createExtensionsWithKeymap } from './extensions';
+  import { createExtensionsWithKeymap, highlightLine, clearHighlight } from './extensions';
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
   import { autoSaveStore } from '../stores/autosave';
   import { sessionStore } from '../stores/session';
-  import { FileText } from 'lucide-svelte';
 
   let editorContainer: HTMLDivElement | undefined;
   let editorView: EditorView | null = null;
@@ -18,49 +17,6 @@
   let currentNoteTitle = '';
   let currentIsDirty = false;
   let pendingContent: string | null = null;
-  let themeObserver: MutationObserver | null = null;
-  let scrollSaveTimeout: ReturnType<typeof setTimeout> | null = null;
-  let currentFilePath: string | null = null;
-
-  const SCROLL_KEY_PREFIX = 'chronicle:scroll:';
-
-  function saveScrollPosition() {
-    if (!editorView || !currentFilePath) return;
-    const scrollTop = editorView.scrollDOM.scrollTop;
-    try {
-      localStorage.setItem(SCROLL_KEY_PREFIX + currentFilePath, String(scrollTop));
-    } catch {
-      // Ignore storage errors
-    }
-  }
-
-  function restoreScrollPosition() {
-    if (!editorView || !currentFilePath) return;
-    try {
-      const saved = localStorage.getItem(SCROLL_KEY_PREFIX + currentFilePath);
-      if (saved) {
-        const scrollTop = parseInt(saved, 10);
-        if (!isNaN(scrollTop)) {
-          requestAnimationFrame(() => {
-            editorView?.scrollDOM.scrollTo(0, scrollTop);
-          });
-        }
-      }
-    } catch {
-      // Ignore storage errors
-    }
-  }
-
-  function debouncedSaveScroll() {
-    if (scrollSaveTimeout) clearTimeout(scrollSaveTimeout);
-    scrollSaveTimeout = setTimeout(saveScrollPosition, 500);
-  }
-
-  // Detect current theme from data-theme attribute
-  function getCurrentTheme(): 'light' | 'dark' {
-    if (typeof document === 'undefined') return 'dark';
-    return (document.documentElement.getAttribute('data-theme') as 'light' | 'dark') || 'dark';
-  }
 
   // Handle content changes from the editor
   function handleContentChange(content: string) {
@@ -85,7 +41,7 @@
 
     const state = EditorState.create({
       doc: initialContent,
-      extensions: createExtensionsWithKeymap(handleContentChange, { theme: getCurrentTheme() }),
+      extensions: createExtensionsWithKeymap(handleContentChange),
     });
 
     editorView = new EditorView({
@@ -93,12 +49,8 @@
       parent: editorContainer,
     });
 
-    // Listen for scroll events to persist scroll position
-    editorView.scrollDOM.addEventListener('scroll', debouncedSaveScroll);
-
     pendingContent = null;
     editorView.focus();
-    restoreScrollPosition();
   }
 
   // Update editor content from store (when opening a file)
@@ -129,7 +81,34 @@
     }
   }
 
+  // Handle scroll-to-line events from AI output source attribution
+  function handleScrollToLine(e: Event) {
+    if (!editorView) return;
+    const detail = (e as CustomEvent<{ line: number }>).detail;
+    const lineNum = detail.line;
+    const lineCount = editorView.state.doc.lines;
+    const clampedLine = Math.max(1, Math.min(lineNum, lineCount));
+    const line = editorView.state.doc.line(clampedLine);
+
+    editorView.dispatch({
+      effects: [
+        highlightLine.of(clampedLine),
+        EditorView.scrollIntoView(line.from, { y: 'center' }),
+      ],
+    });
+
+    // Clear highlight after 2 seconds
+    setTimeout(() => {
+      if (editorView) {
+        editorView.dispatch({ effects: clearHighlight.of(undefined) });
+      }
+    }, 2000);
+  }
+
   onMount(() => {
+    // Listen for scroll-to-line events from AI output source links
+    window.addEventListener('chronicle:scroll-to-line', handleScrollToLine);
+
     // Subscribe to derived stores for header display
     const unsubHasNote = hasOpenNote.subscribe((v) => {
       currentHasOpenNote = v;
@@ -141,28 +120,8 @@
     const unsubTitle = noteTitle.subscribe((v) => (currentNoteTitle = v));
     const unsubDirty = isNoteDirty.subscribe((v) => (currentIsDirty = v));
 
-    // Watch for theme changes to rebuild editor with correct syntax colors
-    themeObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
-          // Rebuild editor with new theme syntax highlighting
-          if (editorView) {
-            const content = editorView.state.doc.toString();
-            createEditor(content);
-          }
-        }
-      }
-    });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-
     // Subscribe to note store
     unsubscribe = noteStore.subscribe((state) => {
-      const newPath = state.currentNote?.path ?? null;
-      if (newPath !== currentFilePath) {
-        // Save scroll position of the previous file before switching
-        saveScrollPosition();
-        currentFilePath = newPath;
-      }
       if (state.currentNote) {
         if (!editorView) {
           tryCreateEditor(state.currentNote.content);
@@ -183,20 +142,19 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener('chronicle:scroll-to-line', handleScrollToLine);
     if (unsubscribe) unsubscribe();
-    themeObserver?.disconnect();
-    if (scrollSaveTimeout) clearTimeout(scrollSaveTimeout);
-    saveScrollPosition();
     if (editorView) {
-      editorView.scrollDOM.removeEventListener('scroll', debouncedSaveScroll);
       editorView.destroy();
       editorView = null;
     }
   });
 
-  // Handle new note creation — dispatch event so template selector opens
-  function handleNewNote() {
-    window.dispatchEvent(new CustomEvent('chronicle:new-note'));
+  // Handle new note creation
+  async function handleNewNote() {
+    noteStore.newNote();
+    // Start session tracking for the new note
+    await sessionStore.startTracking('new-note');
   }
 
   // Focus the editor
@@ -214,7 +172,7 @@
         Editor
       {/if}
     </span>
-    <button class="new-note-btn" on:click={handleNewNote} title="New Note (Cmd+N)" aria-label="New Note">
+    <button class="new-note-btn" on:click={handleNewNote} title="New Note (Cmd+N)">
       + New
     </button>
   </div>
@@ -223,7 +181,7 @@
       <div class="editor-container" bind:this={editorContainer}></div>
     {:else}
       <div class="placeholder">
-        <span class="placeholder-icon"><FileText size={32} /></span>
+        <span class="placeholder-icon">&#128221;</span>
         <span class="placeholder-text">Markdown Editor</span>
         <span class="placeholder-hint">Create or open a note to start writing</span>
         <button class="placeholder-btn" on:click={handleNewNote}>

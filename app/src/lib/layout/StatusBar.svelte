@@ -12,7 +12,9 @@
   import { invoke } from '@tauri-apps/api/core';
   import { fileStatuses } from '$lib/stores/fileStatus';
   import { isAgentsRunning, lastAgentRun } from '$lib/stores/agentStatus';
-  import { Sun, Moon, Check, Loader2, Pencil, AlertTriangle, Brain } from 'lucide-svelte';
+  import { digestsStore, isGeneratingDigest } from '$lib/stores/digests';
+  import { actionSummary } from '$lib/stores/actions';
+  import { Sun, Moon, Check, Loader2, Pencil, AlertTriangle, Brain, Notebook } from 'lucide-svelte';
   import { onDestroy } from 'svelte';
 
   let theme = 'dark';
@@ -46,6 +48,8 @@
   $: claude = $claudeInstalled;
   $: agentsRunning = $isAgentsRunning;
   $: lastAgentsRun = $lastAgentRun;
+  $: digestGenerating = $isGeneratingDigest;
+  $: summary = $actionSummary;
 
   // Relative time display
   let relativeTime = '';
@@ -111,6 +115,12 @@
   }
 
   async function handleProcess() {
+    if (!claude) {
+      window.dispatchEvent(new CustomEvent('chronicle:toast', {
+        detail: { type: 'warning', message: 'Claude Code not found. Install it to use AI features.' }
+      }));
+      return;
+    }
     if (!note?.path || !workspace?.path) return;
     aiOutputStore.setProcessing(true);
     try {
@@ -119,6 +129,19 @@
       const msg = err instanceof Error ? err.message : String(err);
       aiOutputStore.setError(msg);
     }
+  }
+
+  async function handleDigest() {
+    if (!workspace?.path) return;
+    digestsStore.generate(workspace.path, 'weekly');
+  }
+
+  function openActionDashboard() {
+    window.dispatchEvent(new CustomEvent('chronicle:show-actions'));
+  }
+
+  function openTranscriptModal() {
+    window.dispatchEvent(new CustomEvent('chronicle:paste-transcript'));
   }
 </script>
 
@@ -170,13 +193,32 @@
     {/if}
   </div>
   <div class="status-right">
+    {#if summary.total > 0}
+      <button class="action-summary-btn" on:click={openActionDashboard}>
+        <span class="action-open">{summary.open} open</span>
+        {#if summary.overdue > 0}
+          <span class="action-sep">&middot;</span>
+          <span class="action-overdue">{summary.overdue} overdue</span>
+        {/if}
+      </button>
+    {/if}
+    {#if workspaceOpen}
+      <button
+        class="transcript-btn"
+        on:click={openTranscriptModal}
+        title="Paste Transcript (Cmd+Shift+T)"
+      >
+        + Transcript
+      </button>
+    {/if}
     {#if noteOpen}
       <div class="process-controls">
         <button
           class="process-btn"
+          class:no-claude={!claude}
           on:click={handleProcess}
-          disabled={processing || !noteOpen || !claude}
-          title={claude ? 'Process note (Cmd/Ctrl+Enter)' : 'Install Claude Code for AI features'}
+          disabled={processing || !noteOpen}
+          title={!claude ? 'Claude Code not found — install it for AI features' : processing ? 'Processing...' : 'Process note (Cmd/Ctrl+Enter)'}
           aria-label="Process note"
         >
           {#if processing}
@@ -187,6 +229,21 @@
           {/if}
         </button>
       </div>
+    {/if}
+    {#if workspaceOpen}
+      <button
+        class="digest-btn"
+        on:click={handleDigest}
+        disabled={digestGenerating || !claude}
+        title={claude ? 'Generate Weekly Digest' : 'Install Claude Code for AI features'}
+        aria-label="Generate Weekly Digest"
+      >
+        {#if digestGenerating}
+          <span class="digest-btn-spinner"></span>
+        {:else}
+          <Notebook size={12} />
+        {/if}
+      </button>
     {/if}
     {#if agentsRunning}
       <span class="agent-status running" title="Background agents organizing your notes">
@@ -373,6 +430,15 @@
     cursor: not-allowed;
   }
 
+  .process-btn.no-claude {
+    background: var(--text-muted, #666);
+    opacity: 0.8;
+  }
+
+  .process-btn.no-claude:hover {
+    background: var(--text-muted, #777);
+  }
+
   .process-spinner {
     display: inline-block;
     width: 10px;
@@ -436,6 +502,88 @@
     border-top-color: var(--accent-color, #0078d4);
     border-radius: 50%;
     animation: status-spin 0.8s linear infinite;
+  }
+
+  /* Digest button */
+  .digest-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #888);
+    cursor: pointer;
+    border-radius: 3px;
+    transition: color 0.15s;
+  }
+
+  .digest-btn:hover:not(:disabled) {
+    color: var(--accent-color, #0078d4);
+  }
+
+  .digest-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .digest-btn-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid rgba(0, 120, 212, 0.3);
+    border-top-color: var(--accent-color, #0078d4);
+    border-radius: 50%;
+    animation: status-spin 0.8s linear infinite;
+  }
+
+  /* Action summary button */
+  .action-summary-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 20px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .action-summary-btn:hover {
+    background: var(--hover-bg, #333);
+  }
+
+  .action-open {
+    color: var(--warning-color, #cca700);
+  }
+
+  .action-sep {
+    color: var(--text-muted, #888);
+  }
+
+  .action-overdue {
+    color: var(--error-color, #f14c4c);
+  }
+
+  /* Transcript button */
+  .transcript-btn {
+    padding: 1px 8px;
+    font-size: 11px;
+    color: var(--text-muted, #888);
+    background: transparent;
+    border: 1px solid var(--border-color, #333);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .transcript-btn:hover {
+    background: var(--hover-bg, #333);
+    color: var(--text-primary, #e0e0e0);
   }
 
   .theme-toggle {

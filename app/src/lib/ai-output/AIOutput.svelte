@@ -17,7 +17,8 @@
   import KeyPoints from './KeyPoints.svelte';
   import ActionList from './ActionList.svelte';
   import Questions from './Questions.svelte';
-  import { Bot, Sparkles, AlertCircle, Minus, Link, Copy, Download } from 'lucide-svelte';
+  import { Bot, Sparkles, AlertCircle, Minus, Link, Copy, Download, Users, Gavel } from 'lucide-svelte';
+  import type { Entities } from '$lib/stores/aiOutput';
   import { relatedNotes, linksStore } from '$lib/stores/links';
   import { invoke } from '@tauri-apps/api/core';
   import { toast } from '$lib/stores/toast';
@@ -86,16 +87,23 @@
       });
       if (data && typeof data === 'object' && data.tldr) {
         // We have processed data from .chronicle/processed/
+        const entities = data.entities as Entities | undefined;
         const sections = {
           tldr: (data.tldr as string) ?? null,
-          keyPoints: (data.keyPoints as string[]) ?? [],
-          actions: ((data.actionItems as Array<{ text: string; owner?: string; done?: boolean }>) ?? []).map((a) => ({
+          keyPoints: ((data.keyPoints as Array<unknown>) ?? []).map((kp: unknown) =>
+            typeof kp === 'string' ? { text: kp } : { text: (kp as { text: string }).text, sourceLines: (kp as { sourceLines?: number[] }).sourceLines }
+          ),
+          actions: ((data.actionItems as Array<{ text: string; owner?: string; done?: boolean; sourceLine?: number }>) ?? []).map((a) => ({
             text: a.text,
             owner: a.owner ?? null,
             completed: a.done ?? false,
+            sourceLine: a.sourceLine,
           })),
-          questions: (data.questions as string[]) ?? [],
+          questions: ((data.questions as Array<unknown>) ?? []).map((q: unknown) =>
+            typeof q === 'string' ? { text: q } : { text: (q as { text: string }).text, sourceLine: (q as { sourceLine?: number }).sourceLine }
+          ),
           rawNotes: null,
+          entities: entities ?? undefined,
         };
         aiOutputStore.setResult({
           path: notePath,
@@ -153,7 +161,7 @@
       parts.push(`## TL;DR\n\n${result.sections.tldr}`);
     }
     if (result.sections.keyPoints.length > 0) {
-      parts.push(`## Key Points\n\n${result.sections.keyPoints.map((p) => `- ${p}`).join('\n')}`);
+      parts.push(`## Key Points\n\n${result.sections.keyPoints.map((p) => `- ${p.text}`).join('\n')}`);
     }
     if (result.sections.actions.length > 0) {
       parts.push(
@@ -161,7 +169,7 @@
       );
     }
     if (result.sections.questions.length > 0) {
-      parts.push(`## Open Questions\n\n${result.sections.questions.map((q) => `- ${q}`).join('\n')}`);
+      parts.push(`## Open Questions\n\n${result.sections.questions.map((q) => `- ${q.text}`).join('\n')}`);
     }
     return parts.join('\n\n');
   }
@@ -262,6 +270,53 @@
         <KeyPoints points={result.sections.keyPoints} />
         <ActionList actions={result.sections.actions} />
         <Questions questions={result.sections.questions} />
+
+        {#if result.sections.entities && (
+          (result.sections.entities.people?.length ?? 0) > 0 ||
+          (result.sections.entities.decisions?.length ?? 0) > 0
+        )}
+          <section class="ai-section entities-section">
+            {#if result.sections.entities.people?.length}
+              <h3 class="section-title">
+                <Users size={12} />
+                People Mentioned
+              </h3>
+              <ul class="entity-list">
+                {#each result.sections.entities.people as person}
+                  <li class="entity-item">
+                    <strong class="entity-name">{person.name}</strong>
+                    {#if person.role}<span class="entity-role"> -- {person.role}</span>{/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+
+            {#if result.sections.entities.decisions?.length}
+              <h3 class="section-title decisions-title">
+                <Gavel size={12} />
+                Decisions
+              </h3>
+              <ul class="entity-list">
+                {#each result.sections.entities.decisions as decision}
+                  <li class="entity-item">
+                    <span class="decision-text">{decision.text}</span>
+                    {#if decision.participants?.length}
+                      <span class="entity-participants">({decision.participants.join(', ')})</span>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+
+            {#if result.sections.entities.topics?.length}
+              <div class="entity-topics">
+                {#each result.sections.entities.topics as topic}
+                  <span class="entity-topic-pill">{topic}</span>
+                {/each}
+              </div>
+            {/if}
+          </section>
+        {/if}
 
         {#if showRaw && result.sections.rawNotes}
           <section class="ai-section raw-notes">
@@ -590,6 +645,68 @@
   .meta-label {
     color: var(--text-muted, #666);
     margin-right: 4px;
+  }
+
+  /* Entities section */
+  .entities-section :global(.section-title) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .decisions-title {
+    margin-top: 12px !important;
+  }
+
+  .entity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .entity-item {
+    font-size: 12px;
+    color: var(--text-secondary, #ccc);
+    line-height: 1.4;
+  }
+
+  .entity-name {
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .entity-role {
+    color: var(--text-muted, #888);
+    font-style: italic;
+  }
+
+  .decision-text {
+    color: var(--text-secondary, #ccc);
+  }
+
+  .entity-participants {
+    font-size: 11px;
+    color: var(--text-muted, #888);
+    margin-left: 4px;
+  }
+
+  .entity-topics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 12px;
+  }
+
+  .entity-topic-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    background: var(--hover-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 12px;
+    color: var(--text-secondary, #ccc);
   }
 
   /* Related Notes */

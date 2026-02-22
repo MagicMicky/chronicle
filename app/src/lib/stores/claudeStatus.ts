@@ -13,3 +13,8 @@ export async function checkClaudeInstalled(): Promise<boolean> {
     return false;
   }
 }
+
+// Auto-check on module load
+if (typeof window !== 'undefined') {
+  checkClaudeInstalled();
+}

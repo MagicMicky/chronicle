@@ -139,17 +139,36 @@ pub async fn create_folder(
 #[serde(rename_all = "camelCase")]
 pub struct ParsedAIOutput {
     pub tldr: Option<String>,
-    pub key_points: Vec<String>,
+    pub key_points: Vec<KeyPoint>,
     pub actions: Vec<ActionItem>,
-    pub questions: Vec<String>,
+    pub questions: Vec<Question>,
     pub raw_notes: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyPoint {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_lines: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActionItem {
     pub text: String,
     pub owner: Option<String>,
     pub completed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_line: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Question {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_line: Option<u32>,
 }
 
 /// Read a processed markdown file and parse its structured sections
@@ -197,13 +216,13 @@ fn parse_processed_content(content: &str) -> ParsedAIOutput {
                 }
             }
             "Key Points" => {
-                output.key_points = parse_bullet_list(&body);
+                output.key_points = parse_key_points(&body);
             }
             "Action Items" => {
                 output.actions = parse_action_items(&body);
             }
             "Open Questions" => {
-                output.questions = parse_bullet_list(&body);
+                output.questions = parse_questions(&body);
             }
             "Raw Notes" => {
                 if !body.is_empty() {
@@ -217,25 +236,74 @@ fn parse_processed_content(content: &str) -> ParsedAIOutput {
     output
 }
 
-/// Parse a bullet list into a vector of strings
-fn parse_bullet_list(content: &str) -> Vec<String> {
+/// Extract bullet text from a line, returning None if not a bullet
+fn extract_bullet_text(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+        Some(rest.trim().to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("• ") {
+        Some(rest.trim().to_string())
+    } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
+/// Parse a bullet list into KeyPoint structs with optional source line references
+fn parse_key_points(content: &str) -> Vec<KeyPoint> {
     content
         .lines()
         .filter_map(|line| {
-            let trimmed = line.trim();
-            if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
-                Some(rest.trim().to_string())
-            } else if let Some(rest) = trimmed.strip_prefix("• ") {
-                Some(rest.trim().to_string())
-            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                // Handle continuation lines or non-bulleted items
-                Some(trimmed.to_string())
-            } else {
-                None
-            }
+            extract_bullet_text(line).filter(|s| !s.is_empty()).map(|text| {
+                let (clean_text, source_lines) = extract_source_refs(&text);
+                KeyPoint {
+                    text: clean_text,
+                    source_lines: if source_lines.is_empty() { None } else { Some(source_lines) },
+                }
+            })
         })
-        .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Parse a bullet list into Question structs with optional source line reference
+fn parse_questions(content: &str) -> Vec<Question> {
+    content
+        .lines()
+        .filter_map(|line| {
+            extract_bullet_text(line).filter(|s| !s.is_empty()).map(|text| {
+                let (clean_text, source_lines) = extract_source_refs(&text);
+                Question {
+                    text: clean_text,
+                    source_line: source_lines.into_iter().next(),
+                }
+            })
+        })
+        .collect()
+}
+
+/// Extract source line references like [L12] or [L5, L8] from text
+fn extract_source_refs(text: &str) -> (String, Vec<u32>) {
+    let mut lines = Vec::new();
+    // Match patterns like [L12] or [L5, L8] at end of text
+    if let Some(bracket_start) = text.rfind('[') {
+        let rest = &text[bracket_start..];
+        if rest.ends_with(']') && rest.contains('L') {
+            let inner = &rest[1..rest.len() - 1];
+            for part in inner.split(',') {
+                let part = part.trim();
+                if let Some(num_str) = part.strip_prefix('L') {
+                    if let Ok(n) = num_str.trim().parse::<u32>() {
+                        lines.push(n);
+                    }
+                }
+            }
+            if !lines.is_empty() {
+                return (text[..bracket_start].trim().to_string(), lines);
+            }
+        }
+    }
+    (text.to_string(), lines)
 }
 
 /// Parse action items with checkbox state and owner detection
@@ -277,10 +345,12 @@ fn parse_action_items(content: &str) -> Vec<ActionItem> {
                 (text_part.to_string(), None)
             };
 
+            let (clean_text, source_lines) = extract_source_refs(&text);
             Some(ActionItem {
-                text,
+                text: clean_text,
                 owner,
                 completed,
+                source_line: source_lines.into_iter().next(),
             })
         })
         .collect()
@@ -299,15 +369,17 @@ mod tests {
             Some("This was a productive meeting.".to_string())
         );
         assert_eq!(result.key_points.len(), 2);
-        assert_eq!(result.key_points[0], "Point one");
-        assert_eq!(result.key_points[1], "Point two");
+        assert_eq!(result.key_points[0].text, "Point one");
+        assert_eq!(result.key_points[1].text, "Point two");
+        assert!(result.key_points[0].source_lines.is_none());
         assert_eq!(result.actions.len(), 2);
         assert!(!result.actions[0].completed);
         assert!(result.actions[1].completed);
         assert_eq!(result.actions[0].owner, Some("alice".to_string()));
         assert_eq!(result.actions[1].owner, Some("bob".to_string()));
         assert_eq!(result.questions.len(), 1);
-        assert_eq!(result.questions[0], "What about timeline?");
+        assert_eq!(result.questions[0].text, "What about timeline?");
+        assert!(result.questions[0].source_line.is_none());
     }
 
     #[test]
@@ -347,8 +419,8 @@ mod tests {
         let content = "# Title\n\n## Key Points\n- Dash item\n* Star item\n";
         let result = parse_processed_content(content);
         assert_eq!(result.key_points.len(), 2);
-        assert_eq!(result.key_points[0], "Dash item");
-        assert_eq!(result.key_points[1], "Star item");
+        assert_eq!(result.key_points[0].text, "Dash item");
+        assert_eq!(result.key_points[1].text, "Star item");
     }
 
     #[test]

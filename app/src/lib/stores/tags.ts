@@ -2,10 +2,12 @@ import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { currentWorkspace } from './workspace';
+import { parseTag, type TagCategory } from '$lib/utils/tagColors';
 
 export interface TagIndex {
   byNote: Record<string, string[]>;
   byTag: Record<string, string[]>;
+  categories?: Record<string, TagCategory>;
 }
 
 interface TagsState {
@@ -52,12 +54,42 @@ function createTagsStore() {
 
 export const tagsStore = createTagsStore();
 
-/** Sorted list of tags with counts */
+/** Categories from the tag index */
+export const tagCategories = derived(tagsStore, ($s) => $s.index.categories ?? {});
+
+/** Sorted list of tags with counts and parsed category info */
 export const tagsList = derived(tagsStore, ($s) => {
   const entries = Object.entries($s.index.byTag || {});
   return entries
-    .map(([tag, notes]) => ({ tag, count: notes.length }))
+    .map(([tag, notes]) => {
+      const parsed = parseTag(tag);
+      return { tag, count: notes.length, category: parsed.category, name: parsed.name };
+    })
     .sort((a, b) => b.count - a.count);
+});
+
+/** Tags grouped by category */
+export const tagsGrouped = derived([tagsList, tagCategories], ([$tags, $cats]) => {
+  const groups = new Map<string | null, typeof $tags>();
+  for (const t of $tags) {
+    const key = t.category;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(t);
+  }
+  // Sort groups: named categories first (alphabetical by label), uncategorized last
+  const sorted: { key: string | null; label: string; tags: typeof $tags }[] = [];
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (a === null) return 1;
+    if (b === null) return -1;
+    const la = $cats[a]?.label ?? a;
+    const lb = $cats[b]?.label ?? b;
+    return la.localeCompare(lb);
+  });
+  for (const key of keys) {
+    const label = key ? ($cats[key]?.label ?? key.charAt(0).toUpperCase() + key.slice(1)) : 'Other';
+    sorted.push({ key, label, tags: groups.get(key)! });
+  }
+  return sorted;
 });
 
 export const selectedTag = derived(tagsStore, ($s) => $s.selectedTag);
