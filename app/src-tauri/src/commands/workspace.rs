@@ -1,6 +1,8 @@
+use crate::commands::chronicle::init_chronicle_dir;
 use crate::git;
 use crate::models::{FileNode, Workspace, WorkspaceInfo};
 use crate::storage;
+use crate::watcher::ChronicleWatcher;
 use chrono::Utc;
 use serde_json::json;
 use std::path::Path;
@@ -18,7 +20,7 @@ pub async fn open_workspace(
         return Err(format!("Path is not a directory: {}", path));
     }
 
-    tracing::info!("Opening workspace at {}", path);
+    tracing::info!("Opening workspace");
 
     // Initialize or open git repo
     let is_git_repo = match git::init_or_open_repo(workspace_path) {
@@ -37,6 +39,18 @@ pub async fn open_workspace(
     // Create .claude/settings.json to auto-approve Chronicle MCP tools
     if let Err(e) = create_claude_settings(workspace_path) {
         tracing::warn!("Failed to create .claude/settings.json: {}", e);
+    }
+
+    // Initialize .chronicle/ directory structure
+    if let Err(e) = init_chronicle_dir(workspace_path) {
+        tracing::warn!("Failed to initialize .chronicle/: {}", e);
+    }
+
+    // Start filesystem watcher on .chronicle/
+    if let Some(watcher) = app_handle.try_state::<ChronicleWatcher>() {
+        if let Err(e) = watcher.start(&path, app_handle.clone()) {
+            tracing::warn!("Failed to start chronicle watcher: {}", e);
+        }
     }
 
     // List files
@@ -129,7 +143,16 @@ fn create_mcp_config(app_handle: &tauri::AppHandle, workspace_path: &Path) -> Re
 
     std::fs::write(&mcp_path, config_str).map_err(|e| format!("Failed to write .mcp.json: {}", e))?;
 
-    tracing::info!("Created .mcp.json at {:?}", mcp_path);
+    // Set restrictive file permissions on Unix (0o600 = owner read/write only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&mcp_path, permissions)
+            .map_err(|e| format!("Failed to set .mcp.json permissions: {}", e))?;
+    }
+
+    tracing::info!("Created .mcp.json in workspace");
 
     Ok(())
 }

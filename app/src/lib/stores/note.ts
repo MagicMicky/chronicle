@@ -1,5 +1,36 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { syncAppState } from './appState';
+import { getInvoke } from '$lib/utils/tauri';
+
+const SESSION_KEY = 'chronicle:last-session';
+
+export interface LastSession {
+  workspacePath: string;
+  filePath: string;
+}
+
+export function saveLastSession(workspacePath: string, filePath: string) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ workspacePath, filePath }));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function loadLastSession(): LastSession | null {
+  try {
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.workspacePath && parsed.filePath) {
+        return parsed as LastSession;
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
+}
 
 export interface Note {
   path: string | null;
@@ -123,3 +154,38 @@ export const noteContent = derived(noteStore, ($noteStore) => $noteStore.current
 export const noteTitle = derived(noteStore, ($noteStore) => $noteStore.currentNote?.title ?? '');
 export const isNoteDirty = derived(noteStore, ($noteStore) => $noteStore.isDirty);
 export const hasOpenNote = derived(noteStore, ($noteStore) => $noteStore.currentNote !== null);
+
+/**
+ * Open or create today's daily note.
+ * Filename: YYYY-MM-DD-dayname.md (e.g. 2026-02-22-sunday.md)
+ * Returns the file path on success, or null if no workspace is open.
+ */
+export async function openDailyNote(workspacePath: string): Promise<string | null> {
+  const now = new Date();
+  const dayName = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const filename = `${yyyy}-${mm}-${dd}-${dayName}.md`;
+  const fullPath = `${workspacePath}/${filename}`;
+
+  const invoke = await getInvoke();
+  const exists = await invoke<boolean>('file_exists', { path: fullPath });
+
+  if (exists) {
+    const content = await invoke<string>('read_file', { path: fullPath });
+    noteStore.openNote(fullPath, content);
+  } else {
+    const dateHeader = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const template = `# ${dateHeader}\n\n## Notes\n\n\n## Action Items\n\n`;
+    await invoke('write_file', { path: fullPath, content: template });
+    noteStore.openNote(fullPath, template);
+  }
+
+  return fullPath;
+}

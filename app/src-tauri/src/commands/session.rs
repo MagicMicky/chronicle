@@ -21,32 +21,36 @@ impl Default for TrackerManagerState {
 
 /// Get current tracker info (duration, path)
 #[tauri::command]
-pub fn get_tracker_info(tracker_state: State<'_, TrackerManagerState>) -> Option<TrackerInfo> {
-    let manager = tracker_state.0.lock().unwrap();
-    manager.get_info()
+pub fn get_tracker_info(tracker_state: State<'_, TrackerManagerState>) -> Result<Option<TrackerInfo>, String> {
+    let manager = tracker_state.0.lock()
+        .map_err(|e| format!("Failed to acquire tracker lock: {}", e))?;
+    Ok(manager.get_info())
 }
 
 /// Start tracking a note (called when opening a note)
 #[tauri::command]
-pub fn start_tracking(note_path: String, tracker_state: State<'_, TrackerManagerState>) {
-    let manager = tracker_state.0.lock().unwrap();
+pub fn start_tracking(note_path: String, tracker_state: State<'_, TrackerManagerState>) -> Result<(), String> {
+    let manager = tracker_state.0.lock()
+        .map_err(|e| format!("Failed to acquire tracker lock: {}", e))?;
     manager.start_tracking(&note_path);
+    Ok(())
 }
 
 /// Stop tracking and return duration info (called when closing/switching notes)
 /// Returns the tracker data for use in commit
 #[tauri::command]
-pub fn stop_tracking(tracker_state: State<'_, TrackerManagerState>) -> Option<TrackerInfo> {
-    let manager = tracker_state.0.lock().unwrap();
+pub fn stop_tracking(tracker_state: State<'_, TrackerManagerState>) -> Result<Option<TrackerInfo>, String> {
+    let manager = tracker_state.0.lock()
+        .map_err(|e| format!("Failed to acquire tracker lock: {}", e))?;
     let tracker = manager.stop_tracking();
-    tracker.map(|t| {
+    Ok(tracker.map(|t| {
         let duration = t.duration_minutes();
         TrackerInfo {
             note_path: t.note_path,
             duration_minutes: duration,
             opened_at: t.opened_at,
         }
-    })
+    }))
 }
 
 /// Update metadata with the latest file info

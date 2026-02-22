@@ -1,9 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(unset *)",
-      "Bash(PATH=*)",
-      "Bash(export *)"
+      "Bash(make *)",
+      "Bash(make)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git stash*)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

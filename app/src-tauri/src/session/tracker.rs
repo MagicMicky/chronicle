@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 /// Simple note tracking - just tracks when a note was opened
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,26 +39,37 @@ impl TrackerManager {
         }
     }
 
+    /// Acquire the lock with poison recovery
+    fn lock_current(&self) -> MutexGuard<'_, Option<NoteTracker>> {
+        match self.current.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Recovering from poisoned session lock");
+                poisoned.into_inner()
+            }
+        }
+    }
+
     /// Start tracking a note
     pub fn start_tracking(&self, note_path: &str) {
-        let mut current = self.current.lock().unwrap();
+        let mut current = self.lock_current();
         *current = Some(NoteTracker::new(note_path.to_string()));
-        tracing::debug!("Started tracking {}", note_path);
+        tracing::debug!("Started tracking note");
     }
 
     /// Stop tracking and return the tracker data (for commit)
     pub fn stop_tracking(&self) -> Option<NoteTracker> {
-        let mut current = self.current.lock().unwrap();
+        let mut current = self.lock_current();
         let tracker = current.take();
         if let Some(ref t) = tracker {
-            tracing::debug!("Stopped tracking {} ({}m)", t.note_path, t.duration_minutes());
+            tracing::debug!("Stopped tracking note ({}m)", t.duration_minutes());
         }
         tracker
     }
 
     /// Get current tracker info
     pub fn get_info(&self) -> Option<TrackerInfo> {
-        let current = self.current.lock().unwrap();
+        let current = self.lock_current();
         current.as_ref().map(|t| TrackerInfo {
             note_path: t.note_path.clone(),
             duration_minutes: t.duration_minutes(),
@@ -69,7 +80,7 @@ impl TrackerManager {
     /// Check if currently tracking
     #[allow(dead_code)] // Used in tests
     pub fn is_tracking(&self) -> bool {
-        self.current.lock().unwrap().is_some()
+        self.lock_current().is_some()
     }
 }
 
@@ -90,8 +101,6 @@ pub struct TrackerInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn test_note_tracker() {

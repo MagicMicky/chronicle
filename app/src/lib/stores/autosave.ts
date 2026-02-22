@@ -3,8 +3,9 @@ import { getInvoke } from '$lib/utils/tauri';
 import { noteStore, currentNote } from './note';
 import { workspaceStore, hasWorkspace, currentWorkspace } from './workspace';
 import { fileStatusStore } from './fileStatus';
+import { toast } from './toast';
 
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
 interface AutoSaveState {
   status: SaveStatus;
@@ -19,12 +20,10 @@ const defaultState: AutoSaveState = {
 };
 
 const DEBOUNCE_MS = 2000;
-const SAVED_DISPLAY_MS = 2000;
 
 function createAutoSaveStore() {
   const { subscribe, set, update } = writable<AutoSaveState>(defaultState);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let savedTimer: ReturnType<typeof setTimeout> | null = null;
 
   const triggerSave = async () => {
     const note = get(currentNote);
@@ -71,6 +70,8 @@ function createAutoSaveStore() {
           });
           savePath = finalPath;
           console.log('[AutoSave] File renamed to:', finalPath);
+          const fileName = finalPath.split('/').pop() ?? finalPath;
+          toast.info('Note renamed to: ' + fileName);
         }
       }
 
@@ -81,15 +82,10 @@ function createAutoSaveStore() {
       fileStatusStore.refresh();
 
       update((s) => ({ ...s, status: 'saved', lastSaved: new Date(), error: null }));
-
-      // Reset to idle after display period
-      if (savedTimer) clearTimeout(savedTimer);
-      savedTimer = setTimeout(() => {
-        update((s) => (s.status === 'saved' ? { ...s, status: 'idle' } : s));
-      }, SAVED_DISPLAY_MS);
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       console.error('[AutoSave] Save failed:', error);
+      toast.error('Failed to save: ' + error);
       update((s) => ({ ...s, status: 'error', error }));
     }
   };
@@ -111,6 +107,7 @@ function createAutoSaveStore() {
       }
 
       console.log('[AutoSave] Scheduling save in 2s');
+      update((s) => ({ ...s, status: 'dirty', error: null }));
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(triggerSave, DEBOUNCE_MS);
     },
@@ -135,7 +132,6 @@ function createAutoSaveStore() {
     // Reset state
     reset: () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      if (savedTimer) clearTimeout(savedTimer);
       set(defaultState);
     },
   };

@@ -6,6 +6,12 @@
   }
 
   let { actions }: Props = $props();
+
+  function scrollToLine(line: number) {
+    window.dispatchEvent(
+      new CustomEvent('chronicle:scroll-to-line', { detail: { line } })
+    );
+  }
 </script>
 
 {#if actions.length > 0}
@@ -23,6 +29,13 @@
           <span class="action-text">{action.text}</span>
           {#if action.owner}
             <span class="action-owner">@{action.owner}</span>
+          {/if}
+          {#if action.sourceLine}
+            <button
+              class="source-link"
+              onclick={() => scrollToLine(action.sourceLine!)}
+              title="Go to line {action.sourceLine}"
+            >(L{action.sourceLine})</button>
           {/if}
         </li>
       {/each}
@@ -73,5 +86,21 @@
     padding: 2px 6px;
     border-radius: 3px;
     white-space: nowrap;
+  }
+
+  .source-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 11px;
+    color: var(--text-muted, #888);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .source-link:hover {
+    color: var(--accent-color, #0078d4);
+    text-decoration: underline;
   }
 </style>

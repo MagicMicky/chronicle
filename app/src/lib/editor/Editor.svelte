@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { EditorState } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
-  import { createExtensionsWithKeymap } from './extensions';
+  import { createExtensionsWithKeymap, highlightLine, clearHighlight } from './extensions';
   import { noteStore, hasOpenNote, noteTitle, isNoteDirty } from '../stores/note';
   import { autoSaveStore } from '../stores/autosave';
   import { sessionStore } from '../stores/session';
@@ -81,7 +81,34 @@
     }
   }
 
+  // Handle scroll-to-line events from AI output source attribution
+  function handleScrollToLine(e: Event) {
+    if (!editorView) return;
+    const detail = (e as CustomEvent<{ line: number }>).detail;
+    const lineNum = detail.line;
+    const lineCount = editorView.state.doc.lines;
+    const clampedLine = Math.max(1, Math.min(lineNum, lineCount));
+    const line = editorView.state.doc.line(clampedLine);
+
+    editorView.dispatch({
+      effects: [
+        highlightLine.of(clampedLine),
+        EditorView.scrollIntoView(line.from, { y: 'center' }),
+      ],
+    });
+
+    // Clear highlight after 2 seconds
+    setTimeout(() => {
+      if (editorView) {
+        editorView.dispatch({ effects: clearHighlight.of(undefined) });
+      }
+    }, 2000);
+  }
+
   onMount(() => {
+    // Listen for scroll-to-line events from AI output source links
+    window.addEventListener('chronicle:scroll-to-line', handleScrollToLine);
+
     // Subscribe to derived stores for header display
     const unsubHasNote = hasOpenNote.subscribe((v) => {
       currentHasOpenNote = v;
@@ -115,6 +142,7 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener('chronicle:scroll-to-line', handleScrollToLine);
     if (unsubscribe) unsubscribe();
     if (editorView) {
       editorView.destroy();

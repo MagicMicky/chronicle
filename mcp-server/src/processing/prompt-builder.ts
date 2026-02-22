@@ -45,6 +45,25 @@ Transform the notes into markdown with these sections:
 4. **Open Questions** - items needing follow-up
 5. **Raw Notes** - preserve original content at the end under a collapsible section
 
+## Source Attribution
+For each key point, action item, and question, include the source line number(s) from the original note where the information was found. Use "sourceLines" (array of line numbers) for key points, and "sourceLine" (single number) for actions and questions. Line numbers are 1-based.
+
+When outputting JSON, use this schema:
+{
+  "tldr": "2-3 sentence summary",
+  "keyPoints": [
+    { "text": "point text", "sourceLines": [12, 15] }
+  ],
+  "actionItems": [
+    { "text": "...", "owner": "...", "done": false, "sourceLine": 8 }
+  ],
+  "questions": [
+    { "text": "question text", "sourceLine": 23 }
+  ],
+  "tags": ["tag1", "tag2"],
+  "processedAt": "ISO timestamp"
+}
+
 Be concise. Prioritize actionability. Preserve the user's voice and key details.`;
 
   let userPrompt = `Process these notes`;

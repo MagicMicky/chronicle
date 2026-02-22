@@ -1,4 +1,6 @@
 # Chronicle — Claude Code Guidelines
+# Swarm Protocol
+Activate Swarm Mode
 
 ## Current Status
 
@@ -172,7 +174,7 @@ cat docs/MILESTONES.md
 git log --oneline -10
 
 # Start dev environment
-./scripts/dev.sh  # (or run app and MCP server separately)
+make dev-app      # or make dev-mcp for MCP server
 ```
 
 ### Completing Tasks
@@ -356,45 +358,50 @@ try {
 
 ## Common Commands
 
+All dev commands are in the root `Makefile`. **ALWAYS use `make -C /path/to/chronicle <target>`** instead of running `cd ... && npm/cargo/bun` directly. Direct `cd && command` chains trigger sandbox approval prompts. The Makefile handles PATH setup (nvm, bun) and relative directory changes internally.
+
 ### Development
 
 ```bash
-# Run app in dev mode
-cd app && npm run tauri dev
-
-# Run MCP server
-cd mcp-server && bun run dev
-
-# Type checking
-cd app && npm run check
-cd mcp-server && bun run typecheck
-
-# Linting
-cd app && npm run lint
-cd app/src-tauri && cargo clippy
+make dev-app          # Run app in dev mode (tauri dev)
+make dev-mcp          # Run MCP server (bun run dev)
 ```
 
-### Building
+### Type Checking
 
 ```bash
-# Build app for current platform
-cd app && npm run tauri build
+make check            # All: svelte + rust + mcp
+make check-svelte     # Frontend type check
+make check-rust       # Rust cargo check
+make check-mcp        # MCP server tsc --noEmit
+```
 
-# Build MCP server bundle
-cd mcp-server && bun build src/index.ts --outdir dist
+### Linting
+
+```bash
+make lint             # All (currently: rust clippy)
+make lint-rust        # Rust clippy
 ```
 
 ### Testing
 
 ```bash
-# Rust tests
-cd app/src-tauri && cargo test
+make test             # All: rust + mcp
+make test-rust        # Rust tests
+make test-mcp         # MCP server tests (bun test)
+```
 
-# Frontend type checking
-cd app && npm run check
+### Building
 
-# MCP server tests
-cd mcp-server && bun test
+```bash
+make build-app        # Build app for current platform
+make build-mcp        # Build MCP server bundle
+```
+
+### Full Verification
+
+```bash
+make verify           # Run check + lint + test (use before committing)
 ```
 
 ## Key Reminders
@@ -405,6 +412,13 @@ cd mcp-server && bun test
 2. **Check dependencies**: Don't start M5 if M2-M4 aren't done
 3. **Follow acceptance criteria**: They define "done"
 4. **Update milestone checklist**: Mark items complete as you go
+
+### For Running Commands
+
+1. **Always use Makefile targets**: `make -C /home/magicmicky/Development/chronicle <target>`
+2. **Never use `cd <absolute-path> && command`**: Triggers sandbox prompts
+3. **Use Glob/Read tools for file exploration**: Not `ls` with absolute paths
+4. **Available targets**: `check`, `lint`, `test`, `verify`, `build`, `dev-app`, `dev-mcp`
 
 ### For Code Quality
 
@@ -444,6 +458,8 @@ Always test MCP changes by:
 | Not handling errors | Every operation can fail, handle it |
 | Hardcoding workspace paths | Always use relative paths |
 | Forgetting cross-platform | Test on macOS/Windows/Linux |
+| Running `cd app && npm ...` directly | Use `make -C <root> <target>` instead |
+| Using `ls` with absolute paths | Use Glob/Read tools for file exploration |
 
 ## Working with Claude Code
 

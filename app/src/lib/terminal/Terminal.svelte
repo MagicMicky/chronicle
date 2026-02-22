@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { uiStore } from '$lib/stores/ui';
   import { terminalStore } from '$lib/stores/terminal';
   import { currentWorkspace } from '$lib/stores/workspace';
+  import { claudeInstalled } from '$lib/stores/claudeStatus';
   import { spawnPty, type Pty } from './pty';
+  import { Minus } from 'lucide-svelte';
   import type { Terminal as XTerm } from '@xterm/xterm';
   import type { FitAddon } from '@xterm/addon-fit';
   import type { WebLinksAddon } from '@xterm/addon-web-links';
@@ -14,6 +17,7 @@
   let webLinksAddon: WebLinksAddon | null = null;
   let pty: Pty | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let autoLaunchTimeout: ReturnType<typeof setTimeout> | null = null;
   let initialized = false;
 
   // Track dimensions to avoid unnecessary resizes
@@ -30,6 +34,7 @@
     // Use rAF to sync with browser render cycle - more responsive than setTimeout
     requestAnimationFrame(() => {
       resizeScheduled = false;
+      if (!terminal || !fitAddon) return;
       fitTerminal();
     });
   }
@@ -128,6 +133,11 @@
       // Wire up data flow: PTY -> Terminal
       pty.onData((data: string) => {
         terminal?.write(data);
+        // Auto-expand terminal when output arrives while collapsed
+        const ui = get(uiStore);
+        if (ui.collapsed.terminal) {
+          uiStore.setCollapsed('terminal', false);
+        }
       });
 
       // Handle PTY exit
@@ -141,6 +151,14 @@
       });
 
       terminalStore.setSpawned(workspacePath);
+
+      // Auto-launch Claude Code after shell is ready (only if installed)
+      autoLaunchTimeout = setTimeout(() => {
+        autoLaunchTimeout = null;
+        if (get(claudeInstalled)) {
+          pty?.write('claude\n');
+        }
+      }, 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('[Terminal] Failed to spawn PTY:', error);
@@ -197,6 +215,7 @@
   onDestroy(() => {
     unsubWorkspace?.();
     unsubTerminal?.();
+    if (autoLaunchTimeout) clearTimeout(autoLaunchTimeout);
     resizeObserver?.disconnect();
     window.removeEventListener('resize', debouncedFit);
     pty?.kill();
@@ -208,8 +227,8 @@
 <div class="terminal">
   <div class="pane-header">
     <span class="pane-title">Terminal</span>
-    <button class="collapse-btn" onclick={handleCollapse} title="Collapse Terminal">
-      <span class="icon">&#x2212;</span>
+    <button class="collapse-btn" onclick={handleCollapse} title="Collapse Terminal" aria-label="Collapse Terminal">
+      <Minus size={14} />
     </button>
   </div>
   <div class="pane-content" bind:this={terminalContainer}></div>

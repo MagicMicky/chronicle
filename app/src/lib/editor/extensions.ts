@@ -1,6 +1,6 @@
-import { EditorState } from '@codemirror/state';
+import { EditorState, StateEffect, StateField } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, rectangularSelection, highlightActiveLineGutter } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, rectangularSelection, highlightActiveLineGutter, Decoration, type DecorationSet } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -9,6 +9,39 @@ import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 
 import { chronicleTheme, chronicleSyntaxHighlighting } from './theme';
 import { markers } from './markers';
+
+// Source attribution: line highlight effects and field
+export const highlightLine = StateEffect.define<number>();
+export const clearHighlight = StateEffect.define<void>();
+
+const highlightMark = Decoration.line({ class: 'cm-source-highlight' });
+
+export const lineHighlightField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decos, tr) {
+    for (const e of tr.effects) {
+      if (e.is(highlightLine)) {
+        const lineNum = Math.max(1, Math.min(e.value, tr.state.doc.lines));
+        const line = tr.state.doc.line(lineNum);
+        return Decoration.set([highlightMark.range(line.from)]);
+      }
+      if (e.is(clearHighlight)) {
+        return Decoration.none;
+      }
+    }
+    return decos;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+export const lineHighlightTheme = EditorView.baseTheme({
+  '.cm-source-highlight': {
+    backgroundColor: 'rgba(255, 213, 79, 0.3) !important',
+    transition: 'background-color 1s ease-out',
+  },
+});
 
 export interface EditorConfig {
   lineNumbers?: boolean;
@@ -74,6 +107,10 @@ export function createExtensions(
 
     // Chronicle semantic markers
     ...markers,
+
+    // Source attribution line highlight
+    lineHighlightField,
+    lineHighlightTheme,
 
     // Keymaps
     keymap.of([
